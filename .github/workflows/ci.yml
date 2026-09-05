@@ -3,10 +3,14 @@ on:
   push: { branches: [main] }
   pull_request:
 jobs:
+  # 開発ツールチェーン（vitest 5 / rolldown）が Node 22.12+ を要求するため、
+  # ここでは Node 22 以降のみをテストする。
   test:
+    name: test (node ${{ matrix.node }})
     runs-on: ubuntu-latest
     strategy:
-      matrix: { node: [18, 20, 22] }
+      fail-fast: false
+      matrix: { node: [22, 24, 26] }
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
@@ -19,3 +23,26 @@ jobs:
       - run: pnpm test:coverage
       - run: pnpm build
       - run: node dist/cli.js --version
+
+  # package.json の engines (>=18.3) を裏付けるジョブ。
+  # ビルドは Node 22 で行い、成果物だけを古い Node で実行して動作を確認する。
+  runtime-compat:
+    name: runtime (node ${{ matrix.node }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix: { node: [18, 20] }
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with: { version: 9 }
+      - uses: actions/setup-node@v4
+        with: { node-version: 22, cache: pnpm }
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm build
+      - uses: actions/setup-node@v4
+        with: { node-version: "${{ matrix.node }}" }
+      - run: node --version
+      - run: node dist/cli.js --version
+      - run: node -e "import(require('node:url').pathToFileURL('dist/index.js').href).then(() => console.log('esm ok'))"
+      - run: node --input-type=commonjs -e "require('./dist/index.cjs'); console.log('cjs ok')"
