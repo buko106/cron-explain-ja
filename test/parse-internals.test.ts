@@ -89,8 +89,8 @@ describe("tokenize", () => {
     expect(tokenize("15分毎").map((token) => token.type)).toEqual(["INTERVAL"]);
   });
 
-  it("「時台」の「台」は区切り", () => {
-    expect(tokenize("9時台").map((token) => token.type)).toEqual(["TIME", "SEP"]);
+  it("「時台」の「台」は時の中を指すトークン", () => {
+    expect(tokenize("9時台").map((token) => token.type)).toEqual(["TIME", "HOUR_SPAN"]);
   });
 
   it("「月末」を FREQ より優先する", () => {

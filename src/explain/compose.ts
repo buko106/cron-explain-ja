@@ -18,6 +18,7 @@ import {
   type MinutePart,
   minuteBare,
   minutePart,
+  minuteWithinHour,
 } from "./field";
 import { formatHour, formatTime, type TimeStyle } from "./time";
 
@@ -25,18 +26,29 @@ export interface ComposeOptions extends TimeStyle {
   collapseWeekdays: boolean;
 }
 
-/** 「毎分」「15分ごと」「毎時0分」のように、時の範囲に続けるときの分の表現 */
-function minuteSuffix(part: MinutePart): string {
+/** 「毎分」「15分ごと」「毎時0分」のように、時を限定しない文での分の表現 */
+function minuteAlone(part: MinutePart): string {
   switch (part.kind) {
     case "any":
-      return "毎分";
     case "step":
-      return part.text;
+    case "rangeStep":
+      return minuteBare(part);
     case "single":
       return `毎時${part.value}分`;
     case "values":
       return `毎時${part.text}`;
   }
+}
+
+/**
+ * 時の節に続けるときの分の表現。
+ * 「AからBまでNごと」を自己完結した形のまま置くと、時の範囲の「まで」と重なって
+ * 「午前9時から午後5時まで5分から59分まで15分ごと」のように読めなくなる。
+ * 「毎時」で分の節の始まりを示し、時の中での位置として組み立てる。
+ */
+function minuteAfterHours(part: MinutePart): string {
+  if (part.kind === "rangeStep") return `毎時${minuteWithinHour(part)}`;
+  return minuteAlone(part);
 }
 
 export interface TimeDescription {
@@ -57,17 +69,14 @@ export function describeTime(ast: CronAST, options: ComposeOptions): TimeDescrip
   const hourRange = rangeStep(hour, HOUR_SPEC);
 
   if (coversAll(hour, HOUR_SPEC)) {
-    result = { text: minuteSuffix(minute), frequency: true };
+    result = { text: minuteAlone(minute), frequency: true };
   } else if (hourStep !== undefined) {
-    const suffix =
-      minute.kind === "single" ? `（毎時${minute.value}分）` : `（${minuteSuffix(minute)}）`;
-    result = { text: `${hourStep}時間ごと${suffix}`, frequency: true };
+    result = { text: `${hourStep}時間ごと（${minuteAfterHours(minute)}）`, frequency: true };
   } else if (hourRange !== undefined) {
     const from = formatHour(hourRange.from, options);
     const to = formatHour(hourRange.to, options);
-    const suffix =
-      minute.kind === "single" ? `（毎時${minute.value}分）` : `（${minuteSuffix(minute)}）`;
-    result = { text: `${from}から${to}まで${hourRange.step}時間ごと${suffix}`, frequency: false };
+    const step = `${hourRange.step}時間ごと（${minuteAfterHours(minute)}）`;
+    result = { text: `${from}から${to}まで${step}`, frequency: false };
   } else {
     const values = expandField(hour, HOUR_SPEC);
     const ranges = toRanges(values);
@@ -83,10 +92,11 @@ export function describeTime(ast: CronAST, options: ComposeOptions): TimeDescrip
     } else if (allPoints) {
       // 「台」は各時に付ける。「午後2時と午後6時台」では 2 時に掛からない
       const hours = joinJa(values.map((value) => `${formatHour(value, options)}台`));
-      result = { text: `${hours}の${minuteBare(minute)}`, frequency: false };
+      // 「台」自体が時の中を指すので、ここでは「毎時」を前置しない
+      result = { text: `${hours}の${minuteWithinHour(minute)}`, frequency: false };
     } else {
       result = {
-        text: `${describeHourValues(hour, options)}${minuteSuffix(minute)}`,
+        text: `${describeHourValues(hour, options)}${minuteAfterHours(minute)}`,
         frequency: false,
       };
     }
