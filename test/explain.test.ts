@@ -3,21 +3,39 @@ import { CronSyntaxError, explain, explainDetailed } from "../src/index";
 import { type ExplainFixture, loadFixtures } from "./helpers/fixtures";
 
 const fixtures = loadFixtures<ExplainFixture>("explain.jsonl");
+const realWorld = loadFixtures<ExplainFixture>("explain-real.jsonl");
+
+function checkFixture(fixture: ExplainFixture): void {
+  const options = fixture.seconds === true ? { seconds: true } : {};
+  if (fixture.error !== undefined) {
+    expect(() => explain(fixture.expr, options)).toThrow(fixture.error);
+    return;
+  }
+  expect(explain(fixture.expr, options)).toBe(fixture.casual);
+  if (fixture.formal !== undefined) {
+    expect(explain(fixture.expr, { ...options, style: "formal" })).toBe(fixture.formal);
+  }
+  if (fixture.h24 !== undefined) {
+    expect(explain(fixture.expr, { ...options, hour: "24h" })).toBe(fixture.h24);
+  }
+  if (fixture.extensions !== undefined) {
+    expect(explainDetailed(fixture.expr, options).extensions.sort()).toEqual(
+      [...fixture.extensions].sort(),
+    );
+  }
+}
 
 describe("explain（フィクスチャ）", () => {
   it.each(fixtures.map((fixture) => [fixture.expr, fixture] as const))("%s", (_expr, fixture) => {
-    expect(explain(fixture.expr)).toBe(fixture.casual);
-    if (fixture.formal !== undefined) {
-      expect(explain(fixture.expr, { style: "formal" })).toBe(fixture.formal);
-    }
-    if (fixture.h24 !== undefined) {
-      expect(explain(fixture.expr, { hour: "24h" })).toBe(fixture.h24);
-    }
-    if (fixture.extensions !== undefined) {
-      expect(explainDetailed(fixture.expr).extensions.sort()).toEqual(
-        [...fixture.extensions].sort(),
-      );
-    }
+    checkFixture(fixture);
+  });
+});
+
+// DESIGN.md §3.7: 実在の crontab から集めた式の出力を人手で確認し、そのまま固定したもの。
+// 出典は各行の source を参照。
+describe("explain（実在 crontab）", () => {
+  it.each(realWorld.map((fixture) => [fixture.expr, fixture] as const))("%s", (_expr, fixture) => {
+    checkFixture(fixture);
   });
 });
 

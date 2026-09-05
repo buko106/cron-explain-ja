@@ -31,6 +31,39 @@ export function coversAll(ast: FieldAST, spec: FieldSpec): boolean {
   return expandField(ast, spec).length === spec.max - spec.min + 1;
 }
 
+/**
+ * フィールドの全域に対する刻みなら、その刻み幅を返す。
+ * `0-59/5` のように範囲が全域を覆う場合を含み、`*` を base にしたものと同じ意味になる。
+ */
+export function fullRangeStep(ast: FieldAST, spec: FieldSpec): number | undefined {
+  if (ast.kind !== "step") return undefined;
+  const base = ast.base;
+  // 刻みは base の下限を起点に数えるため、全値を含んでいても起点が min でなければ
+  // `*` とは値が違う。`1-0/2` は循環して全値を含むが 1,3,5… であり `*/2` ではない
+  const fromMin =
+    isAny(base) || (base.kind === "range" && base.from === spec.min && base.to === spec.max);
+  if (!fromMin) return undefined;
+  // 幅を超える刻みは実際には起点で 1 回動くだけなので、「Nごと」とは説明しない
+  if (ast.step > spec.max - spec.min) return undefined;
+  return ast.step;
+}
+
+/**
+ * 「AからBまでNごと」と説明できる刻みなら、その範囲と刻み幅を返す。
+ * 幅を超える刻みは起点で 1 回動くだけなので、範囲としては説明しない。
+ */
+export function rangeStep(
+  ast: FieldAST,
+  spec: FieldSpec,
+): { from: number; to: number; step: number } | undefined {
+  if (ast.kind !== "step" || ast.base.kind !== "range") return undefined;
+  const { from, to } = ast.base;
+  const span = spec.max - spec.min + 1;
+  const width = from <= to ? to - from : span - from + to;
+  if (ast.step > width) return undefined;
+  return { from, to, step: ast.step };
+}
+
 function rangeValues(from: number, to: number, spec: FieldSpec, step: number): number[] {
   const values: number[] = [];
   const span = spec.max - spec.min + 1;

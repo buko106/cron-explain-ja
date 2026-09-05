@@ -94,4 +94,12 @@ export const MACROS: Record<string, string> = {
   "@hourly": "0 * * * *",
 };
 
+/**
+ * crontab では有効だが、実行タイミングが日時で決まらないため説明できない指定。
+ * 値はエラーメッセージに使う理由。
+ */
+export const UNSCHEDULABLE_MACROS: Record<string, string> = {
+  "@reboot": "起動時に一度だけ実行される指定で、日時を持たないため説明できません",
+};
+
 export const DOW_LABELS = ["日曜日", "月曜日", "火曜日", "水曜日", "木曜日", "金曜日", "土曜日"];

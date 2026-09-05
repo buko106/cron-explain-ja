@@ -39,6 +39,18 @@ explain("0 9 * * *", { tz: "Asia/Tokyo" }); // '毎日午前9時（Asia/Tokyo）
 | `tz` | — | 指定すると末尾に `（zone）` を付ける |
 | `collapseWeekdays` | `true` | `1-5` を「平日」、`0,6` を「週末」に畳む |
 
+`L` / `#` / `W` は Quartz 拡張として解釈しますが、**曜日番号は Unix cron の 0 = 日曜**に
+従います。Quartz は 1 = 日曜なので、Quartz 向けに書かれた式をそのまま渡すと曜日が 1 つ
+ずれます。
+
+```ts
+explain("0 10 * * 6L"); // '最終土曜日の午前10時'（Quartz の意味では最終金曜日）
+```
+
+マクロは `@daily /usr/bin/foo` のようにコマンドが続いていても解釈します（crontab の行を
+そのまま渡せます）。ただし `@reboot` は起動時に一度だけ実行される指定で日時を持たないため、
+`CronSyntaxError` を投げます。
+
 ### `explainDetailed(expression, options?): Explanation`
 
 フィールド別の内訳、正規化済みの式、注意書き、次回 3 回を返します。
