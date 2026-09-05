@@ -32,4 +32,9 @@ jobs:
           # 報告があるため classic PAT（repo スコープ）を使う。
           # RELEASE_TOKEN 未設定でもリリース自体は従来どおり動くようフォールバックする。
           GITHUB_TOKEN: ${{ secrets.RELEASE_TOKEN || secrets.GITHUB_TOKEN }}
+          # setup-node の registry-url は NPM_CONFIG_USERCONFIG を設定するので、
+          # npm は changesets が書く ~/.npmrc ではなくそちらを読む。その .npmrc の
+          # トークンは NODE_AUTH_TOKEN を参照しており、未設定だとプレースホルダ
+          # （XXXXX-XXXXX-XXXXX-XXXXX）のままで publish が E404 になる。
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
           NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
