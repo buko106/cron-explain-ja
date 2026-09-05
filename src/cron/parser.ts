@@ -1,6 +1,12 @@
 import { CronSyntaxError } from "../errors";
 import type { CronAST, CronExtension, CronField, FieldAST, ParserOptions } from "../types";
-import { FIELD_SPECS, FIELD_SPECS_WITH_SECONDS, type FieldSpec, MACROS } from "./fields";
+import {
+  FIELD_SPECS,
+  FIELD_SPECS_WITH_SECONDS,
+  type FieldSpec,
+  MACROS,
+  UNSCHEDULABLE_MACROS,
+} from "./fields";
 
 export interface ParsedExpression {
   ast: CronAST;
@@ -220,8 +226,13 @@ export function parseExpression(expression: string, options: ParserOptions = {})
   let source = trimmed;
   let macro: string | undefined;
   if (source.startsWith("@")) {
-    const expanded = MACROS[source.toLowerCase()];
+    const lower = source.toLowerCase();
+    const expanded = MACROS[lower];
     if (expanded === undefined) {
+      const reason = UNSCHEDULABLE_MACROS[lower];
+      if (reason !== undefined) {
+        throw new CronSyntaxError(`'${source}' は${reason}`, { position: 0 });
+      }
       throw new CronSyntaxError(`マクロ '${source}' には対応していません`, { position: 0 });
     }
     macro = source;

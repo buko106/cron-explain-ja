@@ -470,9 +470,26 @@ for (const { text } of fixtures) {
 
 lines 90% / branches 85%、`dictionary.ts` は 100%。
 
-### 3.7 手動レビュー
+### 3.7 手動レビュー（実施済み）
 
-実在 crontab 約 200 件の `explain` 出力を一覧化し人手で確認、結果をフィクスチャ化。
+実在 crontab 201 件（重複を除いて 167 式）の `explain` 出力を一覧化して人手で確認し、
+`test/fixtures/explain-real.jsonl` に固定した。各行の `source` が出典を示す。
+
+収集元は次のとおり。
+
+| 分類 | 例 |
+|---|---|
+| ディストリの標準設定 | Debian/Ubuntu `/etc/crontab`、`/etc/cron.d/*`（e2scrub_all, php, sysstat, mdadm, certbot）、RHEL `0hourly` |
+| Web アプリ / CMS | Nextcloud, WordPress, Drupal, GitLab, Redmine, Matomo, AWStats |
+| バックアップ | rsnapshot, Amanda, Bacula, BackupPC, borg/restic |
+| 監視・セキュリティ | Munin, Zabbix, ClamAV, rkhunter, AIDE, Lynis |
+| メール・DB | Mailman, postfix, Dovecot, PostgreSQL, MySQL, Elasticsearch |
+| CI / コンテナ | GitHub Actions `on.schedule`、Kubernetes CronJob、Velero |
+| Quartz / Spring | Quartz CronTrigger チュートリアルの例（秒付き 6 フィールド） |
+| その他 | crontab のマクロ、crontab.guru の掲載例 |
+
+レビューで見つかった問題と対応は §6「実装時に決めたこと」に記録した。
+フィクスチャは `explain` が throw する式も `error` フィールドで固定している。
 
 ---
 
@@ -703,8 +720,33 @@ const OPTIONS = {
 - Vixie cron に合わせ、`5-1` のような循環する範囲を許容する
 - `0-6` のように全域を列挙した指定は `*` と同じものとして説明する
 
+#### §3.7 のレビューで決めたこと
+
+- 全域を `*` と同じに畳む扱いは、刻みの base にも適用する。
+  `0-59/5` は `*/5` と同じ集合なので「5分ごと」とする（Quartz 由来の `0/5` は
+  `0-59/5` に正規化されるため、この畳み込みが効く）。
+  以前は「0分から59分まで5分ごと」となり、時の範囲と併記すると
+  「午前8時から午前10時まで0分から59分まで30分ごと」のように「まで」が重なっていた
+- 時をリストで並べて「台」を付けるときは、各時に付ける。
+  「午後2時と午後6時台」では「台」が午後2時に掛からない
+- 日の `*/N` は「N日ごと」のままにする。「1日からN日ごと」の方が
+  月ごとに数え直す点が明確だが、parse がその表現を解釈できず往復（§3.3）が壊れる。
+  parse 側を拡張するなら合わせて変更する
+- `0,15,30,45` のような等間隔のリストは刻みに畳まない。
+  「毎時0分、15分、30分、45分」は冗長だが曖昧さがなく、書かれたとおりを保つ方を採る
+- `@reboot` は「対応していないマクロ」ではなく、日時を持たないため説明できないものとして
+  専用のエラーメッセージを返す。実在の crontab に頻出し、`crontab -l | cron-ja explain`
+  で必ず当たるため
+- 曜日番号は Unix cron（0=日曜）に従う。Quartz は 1=日曜なので、Quartz の式をそのまま
+  渡すと曜日が 1 つずれる。仕様として受け入れ、README に注意書きを置く
+
 ### 残っているもの
 
 - `explain` 文末の「に実行」オプションの要否
 - CLI の `--tz` で IANA タイムゾーンを扱うか（v1 は UTC/local のみ）
 - `next` の探索上限（現在は 5 年、超えると見つかった分だけ返す）を設定可能にするか
+- Quartz の `LW`（月末最後の平日）が未対応。`L` `L-3` `15W` は解釈できるが `LW` は
+  `FieldAST` に対応する種別がない（§2.1）。実在の crontab では稀なため見送った
+- parse が「毎月1日から3日ごと」のように日付と日の間隔が並ぶ入力で、間隔を黙って捨てて
+  `0 9 1 * *` を confidence 1.0 で返す。§2.3.5 の「同フィールドへ 2 回代入」に当たるため
+  note と減点が要る

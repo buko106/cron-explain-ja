@@ -1,0 +1,167 @@
+{"expr":"17 * * * *","casual":"毎時17分","source":"Debian/Ubuntu /etc/crontab (cron.hourly)"}
+{"expr":"25 6 * * *","casual":"毎日午前6時25分","h24":"毎日6時25分","source":"Debian/Ubuntu /etc/crontab (cron.daily)"}
+{"expr":"47 6 * * 7","casual":"毎週日曜日の午前6時47分","h24":"毎週日曜日の6時47分","source":"Debian/Ubuntu /etc/crontab (cron.weekly)"}
+{"expr":"52 6 1 * *","casual":"毎月1日の午前6時52分","h24":"毎月1日の6時52分","source":"Debian/Ubuntu /etc/crontab (cron.monthly)"}
+{"expr":"30 7 * * *","casual":"毎日午前7時30分","h24":"毎日7時30分","source":"Debian /etc/cron.d/anacron"}
+{"expr":"30 3 * * 0","casual":"毎週日曜日の午前3時30分","h24":"毎週日曜日の3時30分","source":"Debian /etc/cron.d/e2scrub_all"}
+{"expr":"10 3 * * *","casual":"毎日午前3時10分","h24":"毎日3時10分","source":"Debian /etc/cron.d/e2scrub_all (reap)"}
+{"expr":"09,39 * * * *","casual":"毎時9分と39分","source":"Debian /etc/cron.d/php (sessionclean)"}
+{"expr":"57 0 * * 0","casual":"毎週日曜日の午前0時57分","h24":"毎週日曜日の0時57分","source":"Debian /etc/cron.d/mdadm (checkarray)"}
+{"expr":"0 */12 * * *","casual":"12時間ごと（毎時0分）","source":"Debian /etc/cron.d/certbot"}
+{"expr":"01 * * * *","casual":"毎時1分","source":"RHEL /etc/cron.d/0hourly"}
+{"expr":"5-55/10 * * * *","casual":"5分から55分まで10分ごと","source":"Debian /etc/cron.d/sysstat (sa1)"}
+{"expr":"59 23 * * *","casual":"毎日午後11時59分","h24":"毎日23時59分","source":"Debian /etc/cron.d/sysstat (sa2)"}
+{"expr":"*/10 * * * *","casual":"10分ごと","source":"RHEL /etc/cron.d/sysstat (sa1)"}
+{"expr":"53 23 * * *","casual":"毎日午後11時53分","h24":"毎日23時53分","source":"RHEL /etc/cron.d/sysstat (sa2)"}
+{"expr":"0 1 * * *","casual":"毎日午前1時","formal":"毎日午前1時00分","h24":"毎日1時","source":"RHEL /etc/cron.d/raid-check"}
+{"expr":"8 */3 * * *","casual":"3時間ごと（毎時8分）","source":"Debian /etc/cron.d/spamassassin (sa-update)"}
+{"expr":"47 4 * * *","casual":"毎日午前4時47分","h24":"毎日4時47分","source":"Debian /etc/cron.d/mlocate 系 (updatedb)"}
+{"expr":"0 4 * * 0","casual":"毎週日曜日の午前4時","formal":"毎週日曜日の午前4時00分","h24":"毎週日曜日の4時","source":"Debian /etc/cron.d/popularity-contest 相当の週次送信"}
+{"expr":"15 2 * * *","casual":"毎日午前2時15分","h24":"毎日2時15分","source":"logrotate を日次で回す一般的な設定"}
+{"expr":"*/5 * * * *","casual":"5分ごと","source":"Nextcloud cron.php"}
+{"expr":"*/15 * * * *","casual":"15分ごと","source":"WordPress wp-cron.php / Drupal cron"}
+{"expr":"* * * * *","casual":"毎分","source":"Laravel schedule:run / Magento / Moodle"}
+{"expr":"*/1 * * * *","casual":"毎分","source":"Kubernetes CronJob のドキュメント例"}
+{"expr":"0 2 * * *","casual":"毎日午前2時","formal":"毎日午前2時00分","h24":"毎日2時","source":"GitLab のバックアップ (gitlab-backup create)"}
+{"expr":"0 3 * * *","casual":"毎日午前3時","formal":"毎日午前3時00分","h24":"毎日3時","source":"Redmine / Mastodon 系の日次メンテナンス"}
+{"expr":"0 4 * * *","casual":"毎日午前4時","formal":"毎日午前4時00分","h24":"毎日4時","source":"Roundcube cleandb.sh"}
+{"expr":"*/30 * * * *","casual":"30分ごと","source":"Discourse / Ghost 系の定期ジョブ"}
+{"expr":"0 0,12 * * *","casual":"毎日午前0時と正午","formal":"毎日午前0時00分と午後0時00分","h24":"毎日0時と12時","source":"Certbot 公式が案内する renew（1日2回）"}
+{"expr":"0 5 * * 1","casual":"毎週月曜日の午前5時","formal":"毎週月曜日の午前5時00分","h24":"毎週月曜日の5時","source":"週次のキャッシュ再生成"}
+{"expr":"30 2 * * 0","casual":"毎週日曜日の午前2時30分","h24":"毎週日曜日の2時30分","source":"Zabbix の週次ハウスキーピング"}
+{"expr":"0 */6 * * *","casual":"6時間ごと（毎時0分）","source":"Wiki 系の全文検索インデックス再構築"}
+{"expr":"45 1 * * *","casual":"毎日午前1時45分","h24":"毎日1時45分","source":"Matomo (Piwik) archive.php"}
+{"expr":"0,10,20,30,40,50 * * * *","casual":"毎時0分、10分、20分、30分、40分、50分","source":"AWStats の更新"}
+{"expr":"*/2 * * * *","casual":"2分ごと","source":"Gitea / Forgejo のミラー同期"}
+{"expr":"0 */4 * * *","casual":"4時間ごと（毎時0分）","source":"Mailman の日次以外の定期タスク"}
+{"expr":"5 0 * * *","casual":"毎日午前0時5分","formal":"毎日午前0時05分","h24":"毎日0時5分","source":"静的サイトの日次デプロイ"}
+{"expr":"0 6 * * 1-5","casual":"平日の午前6時","formal":"平日の午前6時00分","h24":"平日の6時","source":"平日朝のレポート配信"}
+{"expr":"0 20 * * 5","casual":"毎週金曜日の午後8時","formal":"毎週金曜日の午後8時00分","h24":"毎週金曜日の20時","source":"週末前の締め処理"}
+{"expr":"15 3 * * 6","casual":"毎週土曜日の午前3時15分","h24":"毎週土曜日の3時15分","source":"週次の重い集計バッチ"}
+{"expr":"30 3 * * *","casual":"毎日午前3時30分","h24":"毎日3時30分","source":"rsnapshot daily"}
+{"expr":"0 3 * * 1","casual":"毎週月曜日の午前3時","formal":"毎週月曜日の午前3時00分","h24":"毎週月曜日の3時","source":"rsnapshot weekly"}
+{"expr":"30 2 1 * *","casual":"毎月1日の午前2時30分","h24":"毎月1日の2時30分","source":"rsnapshot monthly"}
+{"expr":"45 0 * * 2-6","casual":"毎週火曜日から土曜日までの午前0時45分","h24":"毎週火曜日から土曜日までの0時45分","source":"Amanda の平日夜間バックアップ"}
+{"expr":"0 1 * * 6","casual":"毎週土曜日の午前1時","formal":"毎週土曜日の午前1時00分","h24":"毎週土曜日の1時","source":"Bacula の週次フルバックアップ"}
+{"expr":"0 23 * * 1-5","casual":"平日の午後11時","formal":"平日の午後11時00分","h24":"平日の23時","source":"Bacula の平日増分バックアップ"}
+{"expr":"15 0 * * *","casual":"毎日午前0時15分","h24":"毎日0時15分","source":"BackupPC の日次ダンプ"}
+{"expr":"0 5 1,15 * *","casual":"毎月1日と15日の午前5時","formal":"毎月1日と15日の午前5時00分","h24":"毎月1日と15日の5時","source":"月2回のフルバックアップ"}
+{"expr":"0 0 1 * *","casual":"毎月1日の午前0時","formal":"毎月1日の午前0時00分","h24":"毎月1日の0時","source":"月初のアーカイブ作成"}
+{"expr":"0 22 * * 1-5","casual":"平日の午後10時","formal":"平日の午後10時00分","h24":"平日の22時","source":"平日夜のデータベースダンプ"}
+{"expr":"30 4 * * 0","casual":"毎週日曜日の午前4時30分","h24":"毎週日曜日の4時30分","source":"週次の rsync ミラー"}
+{"expr":"0 2 1 1,4,7,10 *","casual":"1月、4月、7月、10月の1日の午前2時","formal":"1月、4月、7月、10月の1日の午前2時00分","h24":"1月、4月、7月、10月の1日の2時","source":"四半期ごとのアーカイブ"}
+{"expr":"0 1 1-7 * 1","casual":"毎月1日から7日までおよび月曜日の午前1時","formal":"毎月1日から7日までおよび月曜日の午前1時00分","h24":"毎月1日から7日までおよび月曜日の1時","source":"第1月曜日のバッチ（cron の DOM/DOW OR に注意）"}
+{"expr":"0 0 */3 * *","casual":"毎月3日ごとの午前0時","formal":"毎月3日ごとの午前0時00分","h24":"毎月3日ごとの0時","source":"3日ごとのスナップショット"}
+{"expr":"30 23 L * *","casual":"毎月月末の午後11時30分","h24":"毎月月末の23時30分","extensions":["L"],"source":"月末のクローズ処理 (Quartz 拡張)"}
+{"expr":"0 3 28-31 * *","casual":"毎月28日から31日までの午前3時","formal":"毎月28日から31日までの午前3時00分","h24":"毎月28日から31日までの3時","source":"月末付近の日次処理"}
+{"expr":"0 1 * * 0","casual":"毎週日曜日の午前1時","formal":"毎週日曜日の午前1時00分","h24":"毎週日曜日の1時","source":"borg/restic の週次プルーン"}
+{"expr":"0 2 * * 3","casual":"毎週水曜日の午前2時","formal":"毎週水曜日の午前2時00分","h24":"毎週水曜日の2時","source":"週次の VACUUM FULL"}
+{"expr":"20 4 */2 * *","casual":"毎月2日ごとの午前4時20分","h24":"毎月2日ごとの4時20分","source":"2日ごとの整合性チェック"}
+{"expr":"0 * * * *","casual":"毎時0分","source":"Nagios/Icinga の毎時レポート"}
+{"expr":"0 8 * * 1","casual":"毎週月曜日の午前8時","formal":"毎週月曜日の午前8時00分","h24":"毎週月曜日の8時","source":"週次の稼働率レポート"}
+{"expr":"0 9 1 * *","casual":"毎月1日の午前9時","formal":"毎月1日の午前9時00分","h24":"毎月1日の9時","source":"月次の請求レポート"}
+{"expr":"*/3 * * * *","casual":"3分ごと","source":"ヘルスチェックの巡回"}
+{"expr":"0 0 * * 0","casual":"毎週日曜日の午前0時","formal":"毎週日曜日の午前0時00分","h24":"毎週日曜日の0時","source":"週次のログローテーション補助"}
+{"expr":"30 6 * * *","casual":"毎日午前6時30分","h24":"毎日6時30分","source":"日次のディスク使用量レポート"}
+{"expr":"0 7 * * 1-5","casual":"平日の午前7時","formal":"平日の午前7時00分","h24":"平日の7時","source":"平日朝のダッシュボード更新"}
+{"expr":"*/20 * * * *","casual":"20分ごと","source":"SNMP ポーリング"}
+{"expr":"0 12 * * *","casual":"毎日正午","formal":"毎日午後0時00分","h24":"毎日12時","source":"正午の死活監視まとめ"}
+{"expr":"55 23 * * *","casual":"毎日午後11時55分","h24":"毎日23時55分","source":"日次メトリクスの締め"}
+{"expr":"0 */2 * * *","casual":"2時間ごと（毎時0分）","source":"2時間ごとのグラフ再描画"}
+{"expr":"0 10 * * 2","casual":"毎週火曜日の午前10時","formal":"毎週火曜日の午前10時00分","h24":"毎週火曜日の10時","source":"週次のキャパシティレビュー"}
+{"expr":"0 2 * * 0","casual":"毎週日曜日の午前2時","formal":"毎週日曜日の午前2時00分","h24":"毎週日曜日の2時","source":"ClamAV の週次フルスキャン"}
+{"expr":"30 1 * * *","casual":"毎日午前1時30分","h24":"毎日1時30分","source":"rkhunter --update"}
+{"expr":"0 5 * * *","casual":"毎日午前5時","formal":"毎日午前5時00分","h24":"毎日5時","source":"rkhunter --check の日次実行"}
+{"expr":"0 4 * * 7","casual":"毎週日曜日の午前4時","formal":"毎週日曜日の午前4時00分","h24":"毎週日曜日の4時","source":"chkrootkit の週次実行"}
+{"expr":"0 3 * * 2","casual":"毎週火曜日の午前3時","formal":"毎週火曜日の午前3時00分","h24":"毎週火曜日の3時","source":"Lynis の週次監査"}
+{"expr":"0 0 1 */3 *","casual":"3か月ごとの1日の午前0時","formal":"3か月ごとの1日の午前0時00分","h24":"3か月ごとの1日の0時","source":"3か月ごとの鍵ローテーション"}
+{"expr":"0 4 1 * *","casual":"毎月1日の午前4時","formal":"毎月1日の午前4時00分","h24":"毎月1日の4時","source":"月次の脆弱性スキャン"}
+{"expr":"30 5 * * *","casual":"毎日午前5時30分","h24":"毎日5時30分","source":"sa-update（RHEL 系の日次）"}
+{"expr":"0 6 * * 0","casual":"毎週日曜日の午前6時","formal":"毎週日曜日の午前6時00分","h24":"毎週日曜日の6時","source":"週次のパッチ適用チェック"}
+{"expr":"0 8 * * *","casual":"毎日午前8時","formal":"毎日午前8時00分","h24":"毎日8時","source":"Mailman の日次ダイジェスト配信"}
+{"expr":"0,15,30,45 * * * *","casual":"毎時0分、15分、30分、45分","source":"Mailman の cron/gate_news 相当"}
+{"expr":"0 0 * * *","casual":"毎日午前0時","formal":"毎日午前0時00分","h24":"毎日0時","source":"pflogsumm の日次レポート"}
+{"expr":"9,39 * * * *","casual":"毎時9分と39分","source":"fetchmail のポーリング"}
+{"expr":"30 0 * * *","casual":"毎日午前0時30分","h24":"毎日0時30分","source":"メールログの日次集計"}
+{"expr":"45 23 * * *","casual":"毎日午後11時45分","h24":"毎日23時45分","source":"バウンス処理の日次実行"}
+{"expr":"0 2 * * 6","casual":"毎週土曜日の午前2時","formal":"毎週土曜日の午前2時00分","h24":"毎週土曜日の2時","source":"Dovecot のインデックス最適化"}
+{"expr":"0 3 1 * *","casual":"毎月1日の午前3時","formal":"毎月1日の午前3時00分","h24":"毎月1日の3時","source":"月初のメーリングリスト棚卸し"}
+{"expr":"0 18 * * 5","casual":"毎週金曜日の午後6時","formal":"毎週金曜日の午後6時00分","h24":"毎週金曜日の18時","source":"週末前のメール通知"}
+{"expr":"0 9,15 * * 1-5","casual":"平日の午前9時と午後3時","formal":"平日の午前9時00分と午後3時00分","h24":"平日の9時と15時","source":"平日の1日2回のリマインダ"}
+{"expr":"0 */8 * * *","casual":"8時間ごと（毎時0分）","source":"MySQL のバイナリログ退避"}
+{"expr":"15 1 * * *","casual":"毎日午前1時15分","h24":"毎日1時15分","source":"mysqlcheck --optimize"}
+{"expr":"0 3 * * 0","casual":"毎週日曜日の午前3時","formal":"毎週日曜日の午前3時00分","h24":"毎週日曜日の3時","source":"Redis の週次 BGREWRITEAOF"}
+{"expr":"30 22 * * 1-5","casual":"平日の午後10時30分","h24":"平日の22時30分","source":"平日夜の ETL 取り込み"}
+{"expr":"0 6,18 * * *","casual":"毎日午前6時と午後6時","formal":"毎日午前6時00分と午後6時00分","h24":"毎日6時と18時","source":"1日2回のレプリカ整合性チェック"}
+{"expr":"0 2 2-31 * *","casual":"毎月2日から31日までの午前2時","formal":"毎月2日から31日までの午前2時00分","h24":"毎月2日から31日までの2時","source":"初日を除く日次の集計"}
+{"expr":"0 0 15 * *","casual":"毎月15日の午前0時","formal":"毎月15日の午前0時00分","h24":"毎月15日の0時","source":"月中の棚卸し"}
+{"expr":"40 3 * * 4","casual":"毎週木曜日の午前3時40分","h24":"毎週木曜日の3時40分","source":"週次のインデックス統計更新"}
+{"expr":"30 5,17 * * *","casual":"毎日午前5時30分と午後5時30分","h24":"毎日5時30分と17時30分","source":"GitHub Actions のドキュメント例"}
+{"expr":"0 0 * * MON","casual":"毎週月曜日の午前0時","formal":"毎週月曜日の午前0時00分","h24":"毎週月曜日の0時","source":"GitHub Actions（曜日名表記）"}
+{"expr":"0 9 * * 1-5","casual":"平日の午前9時","formal":"平日の午前9時00分","h24":"平日の9時","source":"GitHub Actions（平日朝）"}
+{"expr":"15 4 * * 6","casual":"毎週土曜日の午前4時15分","h24":"毎週土曜日の4時15分","source":"GitHub Actions（週次の重いジョブ）"}
+{"expr":"0 22 * * *","casual":"毎日午後10時","formal":"毎日午後10時00分","h24":"毎日22時","source":"ナイトリービルド"}
+{"expr":"0 */3 * * *","casual":"3時間ごと（毎時0分）","source":"3時間ごとの統合テスト"}
+{"expr":"45 6 * * 1-5","casual":"平日の午前6時45分","h24":"平日の6時45分","source":"平日朝のスモークテスト"}
+{"expr":"0 13 * * 1-5","casual":"平日の午後1時","formal":"平日の午後1時00分","h24":"平日の13時","source":"平日昼のデプロイウィンドウ"}
+{"expr":"30 19 * * 5","casual":"毎週金曜日の午後7時30分","h24":"毎週金曜日の19時30分","source":"金曜夜のリリース準備"}
+{"expr":"0 3 1,15 * *","casual":"毎月1日と15日の午前3時","formal":"毎月1日と15日の午前3時00分","h24":"毎月1日と15日の3時","source":"月2回のフルリグレッション"}
+{"expr":"0 0 */7 * *","casual":"毎月7日ごとの午前0時","formal":"毎月7日ごとの午前0時00分","h24":"毎月7日ごとの0時","source":"7日ごとのキャッシュ破棄"}
+{"expr":"5 */1 * * *","casual":"毎時5分","source":"毎時のメトリクス集約"}
+{"expr":"0 2 * * 1-5","casual":"平日の午前2時","formal":"平日の午前2時00分","h24":"平日の2時","source":"平日のみのバッチ Pod"}
+{"expr":"*/15 8-20 * * 1-5","casual":"平日の午前8時から午後8時まで15分ごと","h24":"平日の8時から20時まで15分ごと","source":"平日の営業時間帯の定期実行"}
+{"expr":"0 0 1 1 *","casual":"毎年1月1日の午前0時","formal":"毎年1月1日の午前0時00分","h24":"毎年1月1日の0時","source":"年次のリソース棚卸し"}
+{"expr":"0 0 12 * * ?","seconds":true,"casual":"毎日正午","formal":"毎日午後0時00分","h24":"毎日12時","extensions":["?"],"source":"Quartz CronTrigger チュートリアル（毎日正午）"}
+{"expr":"0 15 10 ? * *","seconds":true,"casual":"毎日午前10時15分","h24":"毎日10時15分","extensions":["?"],"source":"Quartz CronTrigger チュートリアル（毎日10:15）"}
+{"expr":"0 15 10 * * ?","seconds":true,"casual":"毎日午前10時15分","h24":"毎日10時15分","extensions":["?"],"source":"Quartz CronTrigger チュートリアル（同上・DOM 指定）"}
+{"expr":"0 * 14 * * ?","seconds":true,"casual":"毎日午後2時台の毎分","h24":"毎日14時台の毎分","extensions":["?"],"source":"Quartz CronTrigger チュートリアル（14時台の毎分）"}
+{"expr":"0 0/5 14 * * ?","seconds":true,"casual":"毎日午後2時台の5分ごと","h24":"毎日14時台の5分ごと","extensions":["?"],"source":"Quartz CronTrigger チュートリアル（14時台の5分ごと）"}
+{"expr":"0 0/5 14,18 * * ?","seconds":true,"casual":"毎日午後2時台と午後6時台の5分ごと","h24":"毎日14時台と18時台の5分ごと","extensions":["?"],"source":"Quartz CronTrigger チュートリアル（14時台と18時台）"}
+{"expr":"0 0-5 14 * * ?","seconds":true,"casual":"毎日午後2時台の0分から5分まで","h24":"毎日14時台の0分から5分まで","extensions":["?"],"source":"Quartz CronTrigger チュートリアル（14:00-14:05）"}
+{"expr":"0 10,44 14 ? 3 WED","seconds":true,"casual":"3月の毎週水曜日の午後2時台の10分と44分","h24":"3月の毎週水曜日の14時台の10分と44分","extensions":["?"],"source":"Quartz CronTrigger チュートリアル（3月の水曜）"}
+{"expr":"0 15 10 ? * MON-FRI","seconds":true,"casual":"平日の午前10時15分","h24":"平日の10時15分","extensions":["?"],"source":"Quartz CronTrigger チュートリアル（平日10:15）"}
+{"expr":"0 15 10 15 * ?","seconds":true,"casual":"毎月15日の午前10時15分","h24":"毎月15日の10時15分","extensions":["?"],"source":"Quartz CronTrigger チュートリアル（毎月15日）"}
+{"expr":"0 15 10 L * ?","seconds":true,"casual":"毎月月末の午前10時15分","h24":"毎月月末の10時15分","extensions":["L","?"],"source":"Quartz CronTrigger チュートリアル（月末）"}
+{"expr":"0 15 10 ? * 6L","seconds":true,"casual":"最終土曜日の午前10時15分","h24":"最終土曜日の10時15分","extensions":["?","L"],"source":"Quartz CronTrigger チュートリアル。Quartz は 1=日曜なので原典では最終金曜日だが、本ライブラリは Unix 系の 0=日曜で解釈する"}
+{"expr":"0 15 10 ? * 6#3","seconds":true,"casual":"第3土曜日の午前10時15分","h24":"第3土曜日の10時15分","extensions":["?","#"],"source":"Quartz CronTrigger チュートリアル。原典では第3金曜日（Quartz は 1=日曜）"}
+{"expr":"0 11 11 11 11 ?","seconds":true,"casual":"毎年11月11日の午前11時11分","h24":"毎年11月11日の11時11分","extensions":["?"],"source":"Quartz CronTrigger チュートリアル（11月11日 11:11）"}
+{"expr":"0 0 0 * * ?","seconds":true,"casual":"毎日午前0時","formal":"毎日午前0時00分","h24":"毎日0時","extensions":["?"],"source":"Spring @Scheduled(cron=...) の日次"}
+{"expr":"30 */5 * * * *","seconds":true,"casual":"5分ごとの30秒","source":"Spring @Scheduled（5分ごとの30秒）"}
+{"expr":"*/30 * * * * *","seconds":true,"casual":"30秒ごと","source":"秒単位のポーリング"}
+{"expr":"0 0/30 8-10 * * ?","seconds":true,"casual":"毎日午前8時から午前10時まで30分ごと","h24":"毎日8時から10時まで30分ごと","extensions":["?"],"source":"Quartz（8-10時台の30分ごと）"}
+{"expr":"0 0 6,19 * * ?","seconds":true,"casual":"毎日午前6時と午後7時","formal":"毎日午前6時00分と午後7時00分","h24":"毎日6時と19時","extensions":["?"],"source":"Quartz（朝夕2回）"}
+{"expr":"0 30 9 ? * MON-FRI","seconds":true,"casual":"平日の午前9時30分","h24":"平日の9時30分","extensions":["?"],"source":"Quartz（平日9:30）"}
+{"expr":"@reboot","error":"'@reboot' は起動時に一度だけ実行される指定で、日時を持たないため説明できません","source":"起動時に実行する crontab の特殊指定"}
+{"expr":"@daily","casual":"毎日午前0時","formal":"毎日午前0時00分","h24":"毎日0時","source":"crontab のマクロ"}
+{"expr":"@hourly","casual":"毎時0分","source":"crontab のマクロ"}
+{"expr":"@weekly","casual":"毎週日曜日の午前0時","formal":"毎週日曜日の午前0時00分","h24":"毎週日曜日の0時","source":"crontab のマクロ"}
+{"expr":"@monthly","casual":"毎月1日の午前0時","formal":"毎月1日の午前0時00分","h24":"毎月1日の0時","source":"crontab のマクロ"}
+{"expr":"@yearly","casual":"毎年1月1日の午前0時","formal":"毎年1月1日の午前0時00分","h24":"毎年1月1日の0時","source":"crontab のマクロ"}
+{"expr":"@annually","casual":"毎年1月1日の午前0時","formal":"毎年1月1日の午前0時00分","h24":"毎年1月1日の0時","source":"crontab のマクロ"}
+{"expr":"@midnight","casual":"毎日午前0時","formal":"毎日午前0時00分","h24":"毎日0時","source":"crontab のマクロ (@daily の別名)"}
+{"expr":"0 0 * * 7","casual":"毎週日曜日の午前0時","formal":"毎週日曜日の午前0時00分","h24":"毎週日曜日の0時","source":"日曜を 7 で書いた週次"}
+{"expr":"0 0 * * SUN","casual":"毎週日曜日の午前0時","formal":"毎週日曜日の午前0時00分","h24":"毎週日曜日の0時","source":"曜日名で書いた週次"}
+{"expr":"0 0 1 JAN *","casual":"毎年1月1日の午前0時","formal":"毎年1月1日の午前0時00分","h24":"毎年1月1日の0時","source":"月名で書いた年次"}
+{"expr":"0 0 1 1,7 *","casual":"1月と7月の1日の午前0時","formal":"1月と7月の1日の午前0時00分","h24":"1月と7月の1日の0時","source":"半期ごと"}
+{"expr":"0 0 1 */6 *","casual":"6か月ごとの1日の午前0時","formal":"6か月ごとの1日の午前0時00分","h24":"6か月ごとの1日の0時","source":"6か月ごと"}
+{"expr":"0 0 1 1-6 *","casual":"1月から6月までの1日の午前0時","formal":"1月から6月までの1日の午前0時00分","h24":"1月から6月までの1日の0時","source":"上半期のみの月初"}
+{"expr":"5 4 * * SUN","casual":"毎週日曜日の午前4時5分","formal":"毎週日曜日の午前4時05分","h24":"毎週日曜日の4時5分","source":"crontab.guru の例（日曜4:05）"}
+{"expr":"23 0-20/2 * * *","casual":"毎日午前0時から午後8時まで2時間ごと（毎時23分）","h24":"毎日0時から20時まで2時間ごと（毎時23分）","source":"crontab.guru の例（偶数時の23分）"}
+{"expr":"0 0,12 1 */2 *","casual":"2か月ごとの1日の午前0時と正午","formal":"2か月ごとの1日の午前0時00分と午後0時00分","h24":"2か月ごとの1日の0時と12時","source":"crontab.guru の例（隔月1日の0時と12時）"}
+{"expr":"0 4 8-14 * *","casual":"毎月8日から14日までの午前4時","formal":"毎月8日から14日までの午前4時00分","h24":"毎月8日から14日までの4時","source":"crontab.guru の例（第2週の4時）"}
+{"expr":"0 0 1,15 * 3","casual":"毎月1日と15日および水曜日の午前0時","formal":"毎月1日と15日および水曜日の午前0時00分","h24":"毎月1日と15日および水曜日の0時","source":"crontab.guru の例（1日と15日、および水曜）"}
+{"expr":"1-59/2 * * * *","casual":"1分から59分まで2分ごと","source":"奇数分ごと"}
+{"expr":"0-59/2 * * * *","casual":"2分ごと","source":"偶数分ごと"}
+{"expr":"0 9-17 * * *","casual":"毎日午前9時から午後5時まで毎時0分","h24":"毎日9時から17時まで毎時0分","source":"営業時間の毎時"}
+{"expr":"0 8-18/2 * * 1-5","casual":"平日の午前8時から午後6時まで2時間ごと（毎時0分）","h24":"平日の8時から18時まで2時間ごと（毎時0分）","source":"平日の2時間ごと"}
+{"expr":"*/5 9-17 * * 1-5","casual":"平日の午前9時から午後5時まで5分ごと","h24":"平日の9時から17時まで5分ごと","source":"平日営業時間の5分ごと"}
+{"expr":"30 8 * * 1,3,5","casual":"毎週月曜日、水曜日、金曜日の午前8時30分","h24":"毎週月曜日、水曜日、金曜日の8時30分","source":"月水金の朝"}
+{"expr":"0 0 25 12 *","casual":"毎年12月25日の午前0時","formal":"毎年12月25日の午前0時00分","h24":"毎年12月25日の0時","source":"クリスマスの日次ジョブ"}
+{"expr":"0 0 1 4 *","casual":"毎年4月1日の午前0時","formal":"毎年4月1日の午前0時00分","h24":"毎年4月1日の0時","source":"年度初めの処理"}
+{"expr":"59 23 31 12 *","casual":"毎年12月31日の午後11時59分","h24":"毎年12月31日の23時59分","source":"大晦日の最終処理"}
+{"expr":"0 0 29 2 *","casual":"毎年2月29日の午前0時","formal":"毎年2月29日の午前0時00分","h24":"毎年2月29日の0時","source":"うるう日のみ"}
+{"expr":"15 10 ? * 6L","casual":"最終土曜日の午前10時15分","h24":"最終土曜日の10時15分","extensions":["?","L"],"source":"Quartz の式を 5 フィールドで書いたもの（原典では最終金曜日）"}
+{"expr":"0 12 1W * *","casual":"毎月1日に最も近い平日の正午","formal":"毎月1日に最も近い平日の午後0時00分","h24":"毎月1日に最も近い平日の12時","extensions":["W"],"source":"毎月最初の平日 (Quartz 拡張)"}
+{"expr":"0 12 LW * *","error":"日 フィールドの値 'LW' を解釈できません","source":"月末最後の平日 (Quartz 拡張)"}
+{"expr":"0 0 L-3 * *","casual":"毎月月末の3日前の午前0時","formal":"毎月月末の3日前の午前0時00分","h24":"毎月月末の3日前の0時","extensions":["L"],"source":"月末3日前 (Quartz 拡張)"}
+{"expr":"0 10 * * 5#1","casual":"第1金曜日の午前10時","formal":"第1金曜日の午前10時00分","h24":"第1金曜日の10時","extensions":["#"],"source":"第1金曜日 (Quartz 拡張)"}

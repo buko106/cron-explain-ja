@@ -7,7 +7,7 @@ import {
   MONTH_SPEC,
   SECOND_SPEC,
 } from "../cron/fields";
-import { expandField, hasExtension, toRanges } from "../cron/values";
+import { coversAll, expandField, fullRangeStep, hasExtension, toRanges } from "../cron/values";
 import type { FieldAST } from "../types";
 import { formatHour, type TimeStyle } from "./time";
 
@@ -48,21 +48,21 @@ export function describeMinuteValues(ast: FieldAST): string {
   );
 }
 
-/** 分フィールドの説明。any は「毎分」、ステップ指定は「N分ごと」 */
+/** 分フィールドの説明。全域は「毎分」、ステップ指定は「N分ごと」 */
 export function describeMinuteField(ast: FieldAST): string {
-  if (ast.kind === "any") return "毎分";
-  if (ast.kind === "step") {
-    if (ast.base.kind === "any") return `${ast.step}分ごと`;
-    if (ast.base.kind === "range") {
-      return `${ast.base.from}分から${ast.base.to}分まで${ast.step}分ごと`;
-    }
+  if (coversAll(ast, MINUTE_SPEC)) return "毎分";
+  const step = fullRangeStep(ast, MINUTE_SPEC);
+  if (step !== undefined) return `${step}分ごと`;
+  if (ast.kind === "step" && ast.base.kind === "range") {
+    return `${ast.base.from}分から${ast.base.to}分まで${ast.step}分ごと`;
   }
   return describeMinuteValues(ast);
 }
 
 export function describeSecondField(ast: FieldAST): string {
-  if (ast.kind === "any") return "毎秒";
-  if (ast.kind === "step" && ast.base.kind === "any") return `${ast.step}秒ごと`;
+  if (coversAll(ast, SECOND_SPEC)) return "毎秒";
+  const step = fullRangeStep(ast, SECOND_SPEC);
+  if (step !== undefined) return `${step}秒ごと`;
   const values = expandField(ast, SECOND_SPEC);
   return describeValues(
     values,
@@ -81,21 +81,21 @@ export function describeHourValues(ast: FieldAST, style: TimeStyle): string {
 }
 
 export function describeHourField(ast: FieldAST, style: TimeStyle): string {
-  if (ast.kind === "any") return "毎時";
-  if (ast.kind === "step") {
-    if (ast.base.kind === "any") return `${ast.step}時間ごと`;
-    if (ast.base.kind === "range") {
-      const from = formatHour(ast.base.from, style);
-      const to = formatHour(ast.base.to, style);
-      return `${from}から${to}まで${ast.step}時間ごと`;
-    }
+  if (coversAll(ast, HOUR_SPEC)) return "毎時";
+  const step = fullRangeStep(ast, HOUR_SPEC);
+  if (step !== undefined) return `${step}時間ごと`;
+  if (ast.kind === "step" && ast.base.kind === "range") {
+    const from = formatHour(ast.base.from, style);
+    const to = formatHour(ast.base.to, style);
+    return `${from}から${to}まで${ast.step}時間ごと`;
   }
   return describeHourValues(ast, style);
 }
 
 export function describeMonthField(ast: FieldAST): string {
-  if (ast.kind === "any" || ast.kind === "noSpecific") return "毎月";
-  if (ast.kind === "step" && ast.base.kind === "any") return `${ast.step}か月ごと`;
+  if (coversAll(ast, MONTH_SPEC)) return "毎月";
+  const step = fullRangeStep(ast, MONTH_SPEC);
+  if (step !== undefined) return `${step}か月ごと`;
   const values = expandField(ast, MONTH_SPEC);
   return describeValues(
     values,
@@ -105,12 +105,15 @@ export function describeMonthField(ast: FieldAST): string {
 }
 
 export function describeDayOfMonthField(ast: FieldAST): string {
-  if (ast.kind === "any" || ast.kind === "noSpecific") return "毎日";
+  if (coversAll(ast, DOM_SPEC)) return "毎日";
   if (ast.kind === "last") {
     return ast.offset === undefined ? "月末" : `月末の${ast.offset}日前`;
   }
   if (ast.kind === "nearestWeekday") return `${ast.day}日に最も近い平日`;
-  if (ast.kind === "step" && ast.base.kind === "any") return `${ast.step}日ごと`;
+  // parse 側が「1日から3日ごと」を解釈できず往復が壊れるため、起点は明示しない。
+  // 「毎月」が前置されるので、月をまたいで数え直す点は文脈から読み取れる。
+  const step = fullRangeStep(ast, DOM_SPEC);
+  if (step !== undefined) return `${step}日ごと`;
   if (ast.kind === "list" && hasExtension(ast)) {
     return joinJa(ast.items.map(describeDayOfMonthField));
   }

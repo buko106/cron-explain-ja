@@ -31,6 +31,15 @@ export function coversAll(ast: FieldAST, spec: FieldSpec): boolean {
   return expandField(ast, spec).length === spec.max - spec.min + 1;
 }
 
+/**
+ * フィールドの全域に対する刻みなら、その刻み幅を返す。
+ * `0-59/5` のように範囲が全域を覆う場合を含み、`*` を base にしたものと同じ意味になる。
+ */
+export function fullRangeStep(ast: FieldAST, spec: FieldSpec): number | undefined {
+  if (ast.kind !== "step") return undefined;
+  return coversAll(ast.base, spec) ? ast.step : undefined;
+}
+
 function rangeValues(from: number, to: number, spec: FieldSpec, step: number): number[] {
   const values: number[] = [];
   const span = spec.max - spec.min + 1;

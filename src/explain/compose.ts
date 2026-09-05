@@ -1,5 +1,12 @@
-import { DOM_SPEC, DOW_SPEC, HOUR_SPEC, MINUTE_SPEC, MONTH_SPEC } from "../cron/fields";
-import { coversAll, expandField, toRanges } from "../cron/values";
+import {
+  DOM_SPEC,
+  DOW_SPEC,
+  HOUR_SPEC,
+  MINUTE_SPEC,
+  MONTH_SPEC,
+  SECOND_SPEC,
+} from "../cron/fields";
+import { coversAll, expandField, fullRangeStep, toRanges } from "../cron/values";
 import type { CronAST, FieldAST } from "../types";
 import {
   describeDayOfMonthField,
@@ -24,15 +31,14 @@ type MinutePart =
   | { kind: "values"; text: string };
 
 function minutePart(ast: FieldAST): MinutePart {
-  if (ast.kind === "any") return { kind: "any" };
-  if (ast.kind === "step") {
-    if (ast.base.kind === "any") return { kind: "step", text: `${ast.step}分ごと` };
-    if (ast.base.kind === "range") {
-      return {
-        kind: "step",
-        text: `${ast.base.from}分から${ast.base.to}分まで${ast.step}分ごと`,
-      };
-    }
+  if (coversAll(ast, MINUTE_SPEC)) return { kind: "any" };
+  const step = fullRangeStep(ast, MINUTE_SPEC);
+  if (step !== undefined) return { kind: "step", text: `${step}分ごと` };
+  if (ast.kind === "step" && ast.base.kind === "range") {
+    return {
+      kind: "step",
+      text: `${ast.base.from}分から${ast.base.to}分まで${ast.step}分ごと`,
+    };
   }
   const values = expandField(ast, MINUTE_SPEC);
   const first = values[0];
@@ -82,12 +88,14 @@ export function describeTime(ast: CronAST, options: ComposeOptions): TimeDescrip
   const hour = ast.hour;
   let result: TimeDescription;
 
+  const hourStep = fullRangeStep(hour, HOUR_SPEC);
+
   if (coversAll(hour, HOUR_SPEC)) {
     result = { text: minuteSuffix(minute), frequency: true };
-  } else if (hour.kind === "step" && hour.base.kind === "any") {
+  } else if (hourStep !== undefined) {
     const suffix =
       minute.kind === "single" ? `（毎時${minute.value}分）` : `（${minuteSuffix(minute)}）`;
-    result = { text: `${hour.step}時間ごと${suffix}`, frequency: true };
+    result = { text: `${hourStep}時間ごと${suffix}`, frequency: true };
   } else if (hour.kind === "step" && hour.base.kind === "range") {
     const from = formatHour(hour.base.from, options);
     const to = formatHour(hour.base.to, options);
@@ -104,8 +112,9 @@ export function describeTime(ast: CronAST, options: ComposeOptions): TimeDescrip
         frequency: false,
       };
     } else if (allPoints) {
-      const hours = joinJa(values.map((value) => formatHour(value, options)));
-      result = { text: `${hours}台の${minuteBare(minute)}`, frequency: false };
+      // 「台」は各時に付ける。「午後2時と午後6時台」では 2 時に掛からない
+      const hours = joinJa(values.map((value) => `${formatHour(value, options)}台`));
+      result = { text: `${hours}の${minuteBare(minute)}`, frequency: false };
     } else {
       result = {
         text: `${describeHourValues(hour, options)}${minuteSuffix(minute)}`,
@@ -120,10 +129,9 @@ export function describeTime(ast: CronAST, options: ComposeOptions): TimeDescrip
   if (seconds.kind === "value" && seconds.value === 0) return result;
 
   if (coversAll(ast.hour, HOUR_SPEC) && coversAll(ast.minute, MINUTE_SPEC)) {
-    if (seconds.kind === "any") return { text: "毎秒", frequency: true };
-    if (seconds.kind === "step" && seconds.base.kind === "any") {
-      return { text: `${seconds.step}秒ごと`, frequency: true };
-    }
+    if (coversAll(seconds, SECOND_SPEC)) return { text: "毎秒", frequency: true };
+    const secondStep = fullRangeStep(seconds, SECOND_SPEC);
+    if (secondStep !== undefined) return { text: `${secondStep}秒ごと`, frequency: true };
   }
   return { text: `${result.text}の${describeSecondField(seconds)}`, frequency: result.frequency };
 }
