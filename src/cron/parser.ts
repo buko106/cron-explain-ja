@@ -226,16 +226,19 @@ export function parseExpression(expression: string, options: ParserOptions = {})
   let source = trimmed;
   let macro: string | undefined;
   if (source.startsWith("@")) {
-    const lower = source.toLowerCase();
+    // crontab の行は「@daily <コマンド>」の形を取り、マクロは常に先頭の 1 トークン。
+    // 数値のフィールドと違って区切りが曖昧にならないので、残りはコマンドとして捨てる
+    const token = /^\S+/.exec(source)?.[0] ?? source;
+    const lower = token.toLowerCase();
     const expanded = MACROS[lower];
     if (expanded === undefined) {
       const reason = UNSCHEDULABLE_MACROS[lower];
       if (reason !== undefined) {
-        throw new CronSyntaxError(`'${source}' は${reason}`, { position: 0 });
+        throw new CronSyntaxError(`'${token}' は${reason}`, { position: 0 });
       }
-      throw new CronSyntaxError(`マクロ '${source}' には対応していません`, { position: 0 });
+      throw new CronSyntaxError(`マクロ '${token}' には対応していません`, { position: 0 });
     }
-    macro = source;
+    macro = token;
     source = expanded;
   }
 

@@ -54,4 +54,33 @@ describe("explain（フィールドの端）", () => {
     expect(explain("0 0 15W * *")).toBe("毎月15日に最も近い平日の午前0時");
     expect(explain("0 0 * * 5L")).toBe("最終金曜日の午前0時");
   });
+
+  // 刻みは base の下限から数えるので、全値を含む循環範囲でも `*` とは値が違う。
+  // 「Nごと」に畳むと本文と values が食い違う
+  it("全値を含む循環範囲の刻みは「Nごと」に畳まない", () => {
+    expect(explain("0 1-0/2 * * *")).toBe("毎日午前1時から午前0時まで2時間ごと（毎時0分）");
+    expect(explainDetailed("0 1-0/2 * * *").fields.hour.values).toEqual([
+      1, 3, 5, 7, 9, 11, 13, 15, 17, 19, 21, 23,
+    ]);
+    expect(explain("1-0/5 * * * *")).toBe("1分から0分まで5分ごと");
+    expect(explain("0 0-23/2 * * *")).toBe("2時間ごと（毎時0分）");
+  });
+
+  // `*/90` は実際には毎時 0 分に 1 回動くだけで、「90分ごと」は誤解をそのまま肯定する
+  it("フィールドの幅を超える刻みは「Nごと」と説明しない", () => {
+    expect(explain("*/90 * * * *")).toBe("毎時0分");
+    expect(explain("0-59/90 * * * *")).toBe("毎時0分");
+    expect(explain("0 */25 * * *")).toBe("毎日午前0時");
+    expect(explain("0-10/15 * * * *")).toBe("毎時0分");
+    expect(explainDetailed("*/90 * * * *").fields.minute.values).toEqual([0]);
+  });
+
+  // toRanges は 2 個の連なりも 1 範囲にするが、describeHourValues は 3 個以上でしか
+  // 畳まない。閾値がずれると「午後0時と午後1時毎時0分」のように接続が抜ける
+  it("連続する 2 個の時のリストも点として扱う", () => {
+    expect(explain("0 12,13 * * *")).toBe("毎日正午と午後1時");
+    expect(explain("* 12,13 * * *")).toBe("毎日午後0時台と午後1時台の毎分");
+    expect(explain("0 9,10 * * *")).toBe("毎日午前9時と午前10時");
+    expect(explain("0 12,13,14 * * *")).toBe("毎日午後0時から午後2時まで毎時0分");
+  });
 });

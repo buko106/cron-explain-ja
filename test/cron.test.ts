@@ -97,6 +97,29 @@ describe("parseExpression", () => {
   it("文字列以外を渡すとエラー", () => {
     expect(() => parseExpression(undefined as unknown as string)).toThrow(CronSyntaxError);
   });
+
+  // crontab の行は「@daily <コマンド>」の形。マクロは先頭の 1 トークンに限られるので、
+  // 数値のフィールドと違って残りをコマンドとして捨てられる
+  it("マクロの後ろにコマンドが続いても展開する", () => {
+    const parsed = parseExpression("@daily /usr/bin/foo");
+    expect(parsed.macro).toBe("@daily");
+    expect(formatField(parsed.ast.hour)).toBe("0");
+    expect(parseExpression("@weekly /usr/local/bin/backup.sh --full").macro).toBe("@weekly");
+  });
+
+  it("@reboot は日時を持たない指定として報告する", () => {
+    expect(() => parseExpression("@reboot")).toThrow(
+      "'@reboot' は起動時に一度だけ実行される指定で、日時を持たないため説明できません",
+    );
+    // README が案内する crontab の流し込みでは、コマンドが付いたまま渡ってくる
+    expect(() => parseExpression("@reboot /usr/local/bin/backup.sh")).toThrow(
+      "'@reboot' は起動時に一度だけ実行される指定で、日時を持たないため説明できません",
+    );
+  });
+
+  it("未知のマクロはコマンドを含めずに報告する", () => {
+    expect(() => parseExpression("@nope /bin/x")).toThrow("マクロ '@nope' には対応していません");
+  });
 });
 
 describe("expandField", () => {

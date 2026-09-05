@@ -47,8 +47,9 @@ explain("0 9 * * *", { tz: "Asia/Tokyo" }); // '毎日午前9時（Asia/Tokyo）
 explain("0 10 * * 6L"); // '最終土曜日の午前10時'（Quartz の意味では最終金曜日）
 ```
 
-`@reboot` は起動時に一度だけ実行される指定で日時を持たないため、`CronSyntaxError` を
-投げます。`crontab -l` の出力をそのまま流し込むときに当たります。
+マクロは `@daily /usr/bin/foo` のようにコマンドが続いていても解釈します（crontab の行を
+そのまま渡せます）。ただし `@reboot` は起動時に一度だけ実行される指定で日時を持たないため、
+`CronSyntaxError` を投げます。
 
 ### `explainDetailed(expression, options?): Explanation`
 

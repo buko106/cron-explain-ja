@@ -6,44 +6,23 @@ import {
   MONTH_SPEC,
   SECOND_SPEC,
 } from "../cron/fields";
-import { coversAll, expandField, fullRangeStep, toRanges } from "../cron/values";
-import type { CronAST, FieldAST } from "../types";
+import { coversAll, expandField, fullRangeStep, rangeStep, toRanges } from "../cron/values";
+import type { CronAST } from "../types";
 import {
   describeDayOfMonthField,
   describeDayOfWeekField,
   describeHourValues,
-  describeMinuteValues,
   describeMonthField,
   describeSecondField,
   joinJa,
+  type MinutePart,
+  minuteBare,
+  minutePart,
 } from "./field";
 import { formatHour, formatTime, type TimeStyle } from "./time";
 
 export interface ComposeOptions extends TimeStyle {
   collapseWeekdays: boolean;
-}
-
-/** 分フィールドの、時と組み合わせるための表現 */
-type MinutePart =
-  | { kind: "any" }
-  | { kind: "step"; text: string }
-  | { kind: "single"; value: number }
-  | { kind: "values"; text: string };
-
-function minutePart(ast: FieldAST): MinutePart {
-  if (coversAll(ast, MINUTE_SPEC)) return { kind: "any" };
-  const step = fullRangeStep(ast, MINUTE_SPEC);
-  if (step !== undefined) return { kind: "step", text: `${step}分ごと` };
-  if (ast.kind === "step" && ast.base.kind === "range") {
-    return {
-      kind: "step",
-      text: `${ast.base.from}分から${ast.base.to}分まで${ast.step}分ごと`,
-    };
-  }
-  const values = expandField(ast, MINUTE_SPEC);
-  const first = values[0];
-  if (values.length === 1 && first !== undefined) return { kind: "single", value: first };
-  return { kind: "values", text: describeMinuteValues(ast) };
 }
 
 /** 「毎分」「15分ごと」「毎時0分」のように、時の範囲に続けるときの分の表現 */
@@ -57,20 +36,6 @@ function minuteSuffix(part: MinutePart): string {
       return `毎時${part.value}分`;
     case "values":
       return `毎時${part.text}`;
-  }
-}
-
-/** 「午前9時台の」に続けるときの分の表現 */
-function minuteBare(part: MinutePart): string {
-  switch (part.kind) {
-    case "any":
-      return "毎分";
-    case "step":
-      return part.text;
-    case "single":
-      return `${part.value}分`;
-    case "values":
-      return part.text;
   }
 }
 
@@ -89,6 +54,7 @@ export function describeTime(ast: CronAST, options: ComposeOptions): TimeDescrip
   let result: TimeDescription;
 
   const hourStep = fullRangeStep(hour, HOUR_SPEC);
+  const hourRange = rangeStep(hour, HOUR_SPEC);
 
   if (coversAll(hour, HOUR_SPEC)) {
     result = { text: minuteSuffix(minute), frequency: true };
@@ -96,16 +62,19 @@ export function describeTime(ast: CronAST, options: ComposeOptions): TimeDescrip
     const suffix =
       minute.kind === "single" ? `（毎時${minute.value}分）` : `（${minuteSuffix(minute)}）`;
     result = { text: `${hourStep}時間ごと${suffix}`, frequency: true };
-  } else if (hour.kind === "step" && hour.base.kind === "range") {
-    const from = formatHour(hour.base.from, options);
-    const to = formatHour(hour.base.to, options);
+  } else if (hourRange !== undefined) {
+    const from = formatHour(hourRange.from, options);
+    const to = formatHour(hourRange.to, options);
     const suffix =
       minute.kind === "single" ? `（毎時${minute.value}分）` : `（${minuteSuffix(minute)}）`;
-    result = { text: `${from}から${to}まで${hour.step}時間ごと${suffix}`, frequency: false };
+    result = { text: `${from}から${to}まで${hourRange.step}時間ごと${suffix}`, frequency: false };
   } else {
     const values = expandField(hour, HOUR_SPEC);
     const ranges = toRanges(values);
-    const allPoints = ranges.every(([from, to]) => from === to);
+    // describeHourValues は 3 個以上連続したときだけ範囲に畳む。同じ閾値で判定しないと、
+    // 12,13 のような 2 個の連なりが「範囲になった」扱いのまま点として並び、
+    // 「午後0時と午後1時毎時0分」のように接続が抜けた文になる
+    const allPoints = ranges.every(([from, to]) => to - from < 2);
     if (allPoints && minute.kind === "single") {
       result = {
         text: joinJa(values.map((value) => formatTime(value, minute.value, options))),
