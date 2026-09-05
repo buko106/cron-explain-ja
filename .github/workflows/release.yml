@@ -9,9 +9,10 @@ jobs:
   release:
     runs-on: ubuntu-latest
     steps:
-      # checkout が .git/config に埋める http.extraheader は、changesets@v1 が
-      # ~/.netrc に書くトークンより優先される。PAT をここで渡さないと push だけが
-      # ビルトイン GITHUB_TOKEN（bot）名義になり、Version PR の CI が承認待ちで止まる。
+      # checkout は .git/config に http.extraheader を埋めるため、git CLI での
+      # push はそのトークン名義になる。v2 は既定で GitHub API 経由で push するので
+      # 通常はここに依存しないが、push-with-git-cli を有効にした場合に bot 名義に
+      # 戻らないよう PAT を渡しておく。
       - uses: actions/checkout@v4
         with:
           token: ${{ secrets.RELEASE_TOKEN || secrets.GITHUB_TOKEN }}
@@ -24,19 +25,22 @@ jobs:
       # publish されるのは dist だけなので、prepublishOnly 任せにせず
       # ここで必ず作っておく（ライフサイクルが走らない経路への保険）。
       - run: pnpm build
-      - uses: changesets/action@v1
+      # v1 は publish の出力から "New tag:" の行を探して公開を検知するが、
+      # @changesets/cli 3.x はその形式で出力しないため、タグの push も
+      # GitHub Release の作成も飛ばされていた。v2 は NDJSON のファイル経由で
+      # 結果を受け取るのでこの取りこぼしが起きない。
+      - uses: changesets/action@v2
         with:
-          publish: pnpm release
+          publish-script: pnpm release
+          # ビルトインの GITHUB_TOKEN で PR を作ると、その PR の CI が承認待ち
+          # （action_required）で止まる。承認前の run は check run を作らないため
+          # 必須チェックが埋まらず、ブランチ保護でマージできない。write 権限を
+          # 持つユーザーの PAT を使えば承認ゲートの対象から外れる。
+          # fine-grained トークンは push に失敗する報告があるため classic PAT
+          # （repo スコープ）を使う。未設定でもリリースが止まらないよう
+          # GITHUB_TOKEN にフォールバックする。
+          github-token: ${{ secrets.RELEASE_TOKEN || secrets.GITHUB_TOKEN }}
         env:
-          # ビルトインの GITHUB_TOKEN で push すると、Version PR の CI が
-          # 承認待ち（action_required）で止まる。承認前の run は check run を
-          # 作らないため必須チェックが埋まらず、ブランチ保護でマージできない。
-          # write 権限を持つユーザーの PAT で push すればアクターがそのユーザーに
-          # なり、承認ゲートの対象から外れて CI がそのまま走る。
-          # fine-grained トークンは changesets のアクションで push に失敗する
-          # 報告があるため classic PAT（repo スコープ）を使う。
-          # RELEASE_TOKEN 未設定でもリリース自体は従来どおり動くようフォールバックする。
-          GITHUB_TOKEN: ${{ secrets.RELEASE_TOKEN || secrets.GITHUB_TOKEN }}
           # setup-node の registry-url は NPM_CONFIG_USERCONFIG を設定するので、
           # npm は changesets が書く ~/.npmrc ではなくそちらを読む。その .npmrc の
           # トークンは NODE_AUTH_TOKEN を参照しており、未設定だとプレースホルダ
