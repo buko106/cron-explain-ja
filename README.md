@@ -199,9 +199,20 @@ classic PAT を使ってください。未設定でも `GITHUB_TOKEN` にフォ�
 
 **Settings → Actions → General → Actions permissions** は、サードパーティのアクションを
 許可する設定にしておく必要があります。ワークフローが `pnpm/action-setup` と
-`changesets/action` を使っているためです。オーナー製と GitHub 製だけに絞ると、CI が
-`startup_failure` になります。この失敗はジョブが 1 つも作られないため **Re-run ボタンが
-出ず**、設定を戻したあとに新しい run を起こす必要があります。
+`changesets/action` を使っているためです。オーナー製と GitHub 製だけに絞ると
+`startup_failure` になります。
+
+「Allow specified actions」で絞る場合は、**バージョンを固定しない**でください。
+
+```
+pnpm/action-setup@*
+changesets/action@*
+```
+
+`changesets/action@v1` のように固定すると、アクションを v2 に上げた時点で弾かれます。
+
+この失敗はジョブが 1 つも作られないため **Re-run ボタンが出ません**。設定を戻したあと、
+main に何か push して新しい run を起こす必要があります。
 
 ## ライセンス
 
