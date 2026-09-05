@@ -180,6 +180,49 @@ describe("parse（複数の時刻）", () => {
   });
 });
 
+describe("parse（時の範囲が複数）", () => {
+  it.each([
+    ["毎日午前0時から午前2時までと午後8時から午後11時まで毎時0分", "0 0-2,20-23 * * *"],
+    ["毎日午前0時から午前2時までと午後8時から午後11時まで毎分", "* 0-2,20-23 * * *"],
+    [
+      "午前1時から午前3時まで、午前10時から午後0時まで、午後8時から午後10時まで毎時0分",
+      "0 1-3,10-12,20-22 * * *",
+    ],
+    // 刻みは書かれた範囲それぞれに掛かる
+    ["午前0時から午前2時までと午後8時から午後11時まで2時間ごと", "0 0-2/2,20-23/2 * * *"],
+    // 範囲と単独の時が混ざっても、どちらも落とさない
+    ["午前0時から午前2時までと午後8時の2時間ごと", "0 0-2/2,20 * * *"],
+    // 「まで」が来なかった「から」は範囲を作らない
+    ["9時と17時から", "0 9,17 * * *"],
+  ])("%s → %s", (text, expected) => {
+    expect(parse(text).expression).toBe(expected);
+  });
+
+  it("終端の note は「まで」ごとに付ける", () => {
+    const result = parse("毎日午前0時から午前2時までと午後8時から午後11時まで毎時0分");
+    expect(result.notes.filter((note) => note.includes("時台まで"))).toHaveLength(2);
+    expect(result.confidence).toBe(0.8);
+  });
+});
+
+describe("parse（時間帯の語の位置）", () => {
+  // 「朝」を 17 時の修飾語として吸うと、9-17 が 17 だけになったまま confidence 1.0 になる
+  it("範囲の始点に置かれた時間帯の語を読む", () => {
+    const result = parse("朝から17時まで");
+    expect(result.expression).toBe("0 9-17 * * *");
+    expect(result.ambiguities.some((ambiguity) => ambiguity.question.includes("朝"))).toBe(true);
+    expect(result.confidence).toBeLessThan(1);
+  });
+
+  it("範囲の終点に置かれた時間帯の語も読む", () => {
+    expect(parse("9時から夕方まで").expression).toBe("0 9-18 * * *");
+  });
+
+  it("時刻の直前にあれば従来どおり修飾語として読む", () => {
+    expect(parse("朝9時から夕方5時まで").expression).toBe("0 9-17 * * *");
+  });
+});
+
 describe("parse（「N時台」）", () => {
   // 「台」はその時の中という意味なので、間隔と並んでも読み方は 1 つしかない
   it("「N時台」と間隔の併用は曖昧にしない", () => {

@@ -123,11 +123,11 @@ function valuesToAst(values: number[]): FieldAST {
  * 「AからBまで」と書かれた範囲は範囲のまま残す（`valuesToAst` は 3 個以上の連なりしか
  * 範囲に畳まないため、`28,31` のように意味が変わってしまう）。
  */
-function listToAst(list: ValueList): FieldAST {
-  if (list.items.every((span) => span.from === span.to)) {
-    return valuesToAst(list.items.map((span) => span.from));
+function spansToAst(spans: Span[]): FieldAST {
+  if (spans.every((span) => span.from === span.to)) {
+    return valuesToAst(spans.map((span) => span.from));
   }
-  const items = list.items.map<FieldAST>((span) =>
+  const items = spans.map<FieldAST>((span) =>
     span.from === span.to
       ? { kind: "value", value: span.from }
       : { kind: "range", from: span.from, to: span.to },
@@ -136,6 +136,10 @@ function listToAst(list: ValueList): FieldAST {
   /* c8 ignore next -- 範囲を含むなら 1 個以上ある */
   if (only === undefined) return ANY;
   return items.length === 1 ? only : { kind: "list", items };
+}
+
+function listToAst(list: ValueList): FieldAST {
+  return spansToAst(list.items);
 }
 
 /**
@@ -148,6 +152,48 @@ function consumeBase(list: ValueList, spec: FieldSpec): FieldAST | null {
   if (!list.pendingRange && span.from === span.to) return null;
   list.consumed = true;
   return { kind: "range", from: span.from, to: list.pendingRange ? spec.max : span.to };
+}
+
+/**
+ * 時刻の並びの 1 要素。時間帯語は `fill` で解決するまで語のまま持つ
+ * （{@link resolveWord} が曖昧さと減点を積むため、`collect` では決められない）。
+ */
+type TimeAtom =
+  | { kind: "time"; hour: number; minute: number }
+  | { kind: "word"; word: TimeOfDayWord };
+
+/** 時刻の並びの 1 要素。`to === null` は単独の時刻、それ以外は「AからBまで」 */
+interface TimeSpan {
+  from: TimeAtom;
+  to: TimeAtom | null;
+}
+
+/** 値の並び（{@link ValueList}）の時刻版。範囲を 2 つ以上持てる */
+interface TimeList {
+  items: TimeSpan[];
+  /** 「から」を読んだが、範囲の終端がまだ来ていない */
+  pendingRange: boolean;
+}
+
+function pushTime(list: TimeList, atom: TimeAtom): void {
+  const last = list.items[list.items.length - 1];
+  if (list.pendingRange && last !== undefined) {
+    last.to = atom;
+    list.pendingRange = false;
+    return;
+  }
+  list.items.push({ from: atom, to: null });
+}
+
+/** 時間帯語を解決した時刻 */
+interface ResolvedTime {
+  hour: number;
+  minute: number;
+}
+
+interface ResolvedSpan {
+  from: ResolvedTime;
+  to: ResolvedTime | null;
 }
 
 /** 刻みの構文木。起点が全域を覆うなら省く（`1-31/3` は「3日ごと」と同じ集合） */
@@ -168,8 +214,7 @@ function hourCandidates(from: number, to: number): Ambiguity["candidates"] {
 }
 
 interface Collected {
-  times: TimeValue[];
-  timeMode: "list" | "range";
+  times: TimeList;
   /** 「9時台」のように、時そのものではなく時の中を指している */
   hourSpan: boolean;
   lists: Record<ListName, ValueList>;
@@ -181,7 +226,6 @@ interface Collected {
   nths: Array<{ weekday: number; nth: number }>;
   domSpecial: "L" | number | null;
   freqs: FreqUnit[];
-  standaloneWords: TimeOfDayWord[];
   unknown: number;
   meaningful: number;
   todNotes: string[];
@@ -189,8 +233,7 @@ interface Collected {
 
 function collect(tokens: Token[]): Collected {
   const state: Collected = {
-    times: [],
-    timeMode: "list",
+    times: { items: [], pendingRange: false },
     hourSpan: false,
     lists: { minute: emptyList(), dom: emptyList(), dow: emptyList(), month: emptyList() },
     intervals: {},
@@ -199,7 +242,6 @@ function collect(tokens: Token[]): Collected {
     nths: [],
     domSpecial: null,
     freqs: [],
-    standaloneWords: [],
     unknown: 0,
     meaningful: 0,
     todNotes: [],
@@ -210,9 +252,10 @@ function collect(tokens: Token[]): Collected {
   /** 直前に読んだ値がどのスロットのものか（「から」の係り先） */
   let last: ListName | "time" | null = null;
 
+  /** 時刻に結び付かなかった時間帯語を、書かれた位置のまま並びに置く */
   const flushWord = () => {
     if (pendingWord !== null) {
-      state.standaloneWords.push(pendingWord);
+      pushTime(state.times, { kind: "word", word: pendingWord });
       pendingWord = null;
     }
   };
@@ -255,7 +298,7 @@ function collect(tokens: Token[]): Collected {
           }
           pendingWord = null;
         }
-        state.times.push({ hour, minute: time.minute });
+        pushTime(state.times, { kind: "time", hour, minute: time.minute });
         last = "time";
         break;
       }
@@ -282,8 +325,11 @@ function collect(tokens: Token[]): Collected {
       }
 
       case "RANGE_FROM":
-        if (last === "time") state.timeMode = "range";
-        else if (last !== null && state.lists[last].items.length > 0) {
+        if (last === "time") {
+          // 「朝から17時まで」の「朝」は 17 時の修飾語ではなく、範囲の始点
+          flushWord();
+          if (state.times.items.length > 0) state.times.pendingRange = true;
+        } else if (last !== null && state.lists[last].items.length > 0) {
           state.lists[last].pendingRange = true;
         }
         break;
@@ -406,76 +452,94 @@ export function fill(tokens: Token[], options: ParseOptions = {}): Slots {
     return override ?? spec.default ?? defaultHour;
   };
 
-  // 時刻に結び付かなかった時間帯語は、それ自体が 1 つの時刻（「午前0時と正午」）
-  const times = [...state.times];
-  for (const word of state.standaloneWords) times.push({ hour: resolveWord(word), minute: 0 });
+  // 時刻に結び付かなかった時間帯語は、それ自体が 1 つの時刻（「午前0時と正午」）。
+  // 並びの位置は `collect` が保っているので、書かれた順のまま解決する
+  const resolveAtom = (atom: TimeAtom): ResolvedTime =>
+    atom.kind === "time"
+      ? { hour: atom.hour, minute: atom.minute }
+      : { hour: resolveWord(atom.word), minute: 0 };
+  const spans = state.times.items.map<ResolvedSpan>((span) => ({
+    from: resolveAtom(span.from),
+    to: span.to === null ? null : resolveAtom(span.to),
+  }));
 
   /* ---------------- 時刻 ---------------- */
 
   const minutes = state.lists.minute;
   const minuteStep = state.intervals.minute;
   const hourStep = state.intervals.hour;
-  const rangeTimes = state.timeMode === "range" && times.length >= 2;
+  const hasTime = spans.length > 0;
+  const hasRange = spans.some((span) => span.to !== null);
+  // 時刻の側に書かれた分。範囲の終端が持つ 0 分は「まで」の側なので採らない
+  // （「9時30分から17時まで」の分は 30 であって 0,30 ではない）
+  const spanMinutes = [...new Set(spans.map((span) => span.from.minute))];
 
-  const noteHourRange = () => {
-    const from = times[0];
-    const to = times[1];
-    /* c8 ignore next -- rangeTimes が真なら 2 件ある */
-    if (from === undefined || to === undefined) return;
-    slots.notes.push(
-      `「${to.hour}時まで」を ${to.hour}時台まで（${from.hour}-${to.hour}）と解釈しました。` +
-        `${to.hour}:00 で終える場合は ${from.hour}-${to.hour - 1} を指定してください`,
+  /** 時刻の並びを時フィールドにする。書かれた範囲は範囲のまま残す */
+  const hourList = (): FieldAST =>
+    spansToAst(spans.map((span) => ({ from: span.from.hour, to: (span.to ?? span.from).hour })));
+
+  /**
+   * 時の刻み。「AからBまでN時間ごと」は範囲ごとに掛かるので、書かれた範囲それぞれに適用する。
+   * 範囲が 1 つも無ければ起点を持たない全域からの刻み。
+   */
+  const hourStepAst = (step: number): FieldAST => {
+    if (!hasRange) return { kind: "step", base: ANY, step };
+    const items = spans.map<FieldAST>((span) =>
+      span.to === null
+        ? { kind: "value", value: span.from.hour }
+        : stepAst({ kind: "range", from: span.from.hour, to: span.to.hour }, step, HOUR_SPEC),
     );
-    penalize("時刻範囲の終端が曖昧", 0.1);
+    const only = items[0];
+    /* c8 ignore next -- hasRange が真なら 1 個以上ある */
+    if (only === undefined) return { kind: "step", base: ANY, step };
+    return items.length === 1 ? only : { kind: "list", items };
   };
 
-  const hourRangeAst = (): FieldAST | null => {
-    const from = times[0];
-    const to = times[1];
-    /* c8 ignore next -- rangeTimes が真なら 2 件ある */
-    if (from === undefined || to === undefined) return null;
-    return { kind: "range", from: from.hour, to: to.hour };
+  /** 「N時まで」が N 時台を含むことを断る。終端ごとに曖昧なので範囲の数だけ付ける */
+  const noteHourRanges = () => {
+    for (const span of spans) {
+      const to = span.to;
+      if (to === null) continue;
+      slots.notes.push(
+        `「${to.hour}時まで」を ${to.hour}時台まで（${span.from.hour}-${to.hour}）と解釈しました。` +
+          `${to.hour}:00 で終える場合は ${span.from.hour}-${to.hour - 1} を指定してください`,
+      );
+      penalize("時刻範囲の終端が曖昧", 0.1);
+    }
   };
 
   if (state.freqs.includes("minute")) {
     slots.minute = ANY;
-    // 「午前9時台の毎分」のように時が書かれていれば、その時の中での毎分
-    const hourRange = rangeTimes ? hourRangeAst() : null;
     if (hourStep !== undefined) {
       // 「2時間ごと（毎分）」の時の刻み。毎分だけを見て捨てると刻みが消える
-      slots.hour = stepAst(hourRange, hourStep, HOUR_SPEC);
-    } else if (hourRange !== null) {
-      slots.hour = hourRange;
-    } else if (times.length > 0) {
-      slots.hour = valuesToAst(times.map((time) => time.hour));
+      slots.hour = hourStepAst(hourStep);
+    } else if (hasTime) {
+      // 「午前9時台の毎分」のように時が書かれていれば、その時の中での毎分
+      slots.hour = hourList();
     }
-    if (rangeTimes) noteHourRange();
+    noteHourRanges();
   } else if (minuteStep !== undefined || hourStep !== undefined) {
     if (minuteStep !== undefined) {
       // 「1分から59分まで2分ごと」の起点。範囲が書かれていなければ全域からの刻み
       slots.minute = stepAst(consumeBase(minutes, MINUTE_SPEC), minuteStep, MINUTE_SPEC);
     }
-    const hourRange = rangeTimes ? hourRangeAst() : null;
     if (hourStep !== undefined) {
-      slots.hour = stepAst(hourRange, hourStep, HOUR_SPEC);
+      slots.hour = hourStepAst(hourStep);
       if (minuteStep === undefined) {
         slots.minute =
           minutes.items.length > 0
             ? listToAst(minutes)
-            : { kind: "value", value: times[0]?.minute ?? 0 };
+            : { kind: "value", value: spanMinutes[0] ?? 0 };
         minutes.consumed = true;
       }
-    } else if (hourRange !== null) {
-      slots.hour = hourRange;
+    } else if (hasRange) {
+      slots.hour = hourList();
     }
 
-    if (rangeTimes) {
-      noteHourRange();
-    } else if (times.length > 0) {
+    noteHourRanges();
+    if (!hasRange && hasTime) {
       // 「午前9時台と午後6時台の5分ごと」のように時が並ぶことがあるので、全部を採る
-      if (minuteStep !== undefined) {
-        slots.hour = valuesToAst(times.map((time) => time.hour));
-      }
+      if (minuteStep !== undefined) slots.hour = hourList();
       // 「9時台の10分ごと」は「その時の中で N 分ごと」で、読み方は 1 つしかない。
       // 「9時に10分ごと」のように時が一点を指すときだけ、どちらの意味か決まらない
       const spanned = state.hourSpan && minuteStep !== undefined && hourStep === undefined;
@@ -496,37 +560,27 @@ export function fill(tokens: Token[], options: ParseOptions = {}): Slots {
       noteConflict(INTERVAL_LABELS.minute);
       if (state.lastAssign.minute === "values") slots.minute = listToAst(minutes);
     }
-  } else if (times.length > 0) {
+  } else if (hasTime) {
     // 「午前9時台の10分と44分」のように分が別に書かれていれば、そちらが分フィールド。
     // 「9時」が持つ 0 分は書かれた値ではないので、時だけを取る
     const writtenMinutes = minutes.items.length > 0;
     // 「9時30分と45分」のように時刻の側にも分が書かれていれば、分の二重指定
-    if (writtenMinutes && times.some((time) => time.minute !== 0)) {
+    if (writtenMinutes && spanMinutes.some((minute) => minute !== 0)) {
       noteConflict(INTERVAL_LABELS.minute);
     }
 
-    if (rangeTimes) {
-      const range = hourRangeAst();
-      if (range !== null) slots.hour = range;
-      slots.minute = writtenMinutes
-        ? listToAst(minutes)
-        : { kind: "value", value: times[0]?.minute ?? 0 };
-      noteHourRange();
+    slots.hour = hourList();
+    noteHourRanges();
+
+    const only = spanMinutes[0];
+    if (writtenMinutes) {
+      slots.minute = listToAst(minutes);
+    } else if (spanMinutes.length === 1 && only !== undefined) {
+      slots.minute = { kind: "value", value: only };
     } else {
-      slots.hour = valuesToAst(times.map((time) => time.hour));
-      const timeMinutes = [...new Set(times.map((time) => time.minute))];
-      const only = timeMinutes[0];
-      if (writtenMinutes) {
-        slots.minute = listToAst(minutes);
-      } else if (timeMinutes.length === 1 && only !== undefined) {
-        slots.minute = { kind: "value", value: only };
-      } else {
-        slots.minute = valuesToAst(timeMinutes);
-        slots.notes.push(
-          "複数の時刻が指定されているため、時と分のすべての組み合わせで実行されます",
-        );
-        penalize("時と分の組み合わせが曖昧", 0.1);
-      }
+      slots.minute = valuesToAst(spanMinutes);
+      slots.notes.push("複数の時刻が指定されているため、時と分のすべての組み合わせで実行されます");
+      penalize("時と分の組み合わせが曖昧", 0.1);
     }
   } else if (state.freqs.includes("hour")) {
     slots.hour = ANY;

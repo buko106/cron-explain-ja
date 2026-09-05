@@ -43,3 +43,5 @@
 {"text":"月初の午前0時","expr":"0 0 1 * *","confidence":1}
 {"text":"毎日午前9時台の毎分","expr":"* 9 * * *","confidence":1}
 {"text":"2週間ごとの月曜日の午前0時","expr":"0 0 * * 1","confidence":0.7}
+{"text":"毎日午前0時から午前2時までと午後8時から午後11時まで毎時0分","expr":"0 0-2,20-23 * * *","confidence":0.8}
+{"text":"朝から17時まで","expr":"0 9-17 * * *","confidence":0.4,"ambiguities":["hour"]}
