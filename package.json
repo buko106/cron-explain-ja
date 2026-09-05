@@ -16,7 +16,8 @@
         "types": "./dist/index.d.cts",
         "default": "./dist/index.cjs"
       }
-    }
+    },
+    "./package.json": "./package.json"
   },
   "bin": {
     "cron-ja": "./dist/cli.js"
@@ -39,7 +40,7 @@
     "lint": "biome check .",
     "lint:fix": "biome check --write .",
     "typecheck": "tsc --noEmit && tsc -p tsconfig.test.json",
-    "prepublishOnly": "pnpm run lint && pnpm run typecheck && pnpm run test && pnpm run build",
+    "prepublishOnly": "pnpm run lint && pnpm run typecheck && pnpm run build && pnpm run test",
     "release": "changeset publish"
   },
   "keywords": [

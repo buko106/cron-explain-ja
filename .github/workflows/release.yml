@@ -16,6 +16,9 @@ jobs:
       - uses: actions/setup-node@v4
         with: { node-version: 22, cache: pnpm, registry-url: "https://registry.npmjs.org" }
       - run: pnpm install --frozen-lockfile
+      # publish されるのは dist だけなので、prepublishOnly 任せにせず
+      # ここで必ず作っておく（ライフサイクルが走らない経路への保険）。
+      - run: pnpm build
       - uses: changesets/action@v1
         with:
           publish: pnpm release
