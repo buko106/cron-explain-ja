@@ -179,8 +179,13 @@ fine-grained トークンは changesets のアクションで push に失敗す�
 classic PAT を使ってください。未設定でも `GITHUB_TOKEN` にフォールバックするので、
 リリース自体は動きます（Version PR の承認だけ手作業になります）。
 
-なお Granular Access Token は**新規パッケージを作成できません**。初回公開だけは
-`npm login` した手元から `npm publish` する必要があります。
+`NPM_TOKEN` は `NODE_AUTH_TOKEN` としても渡す必要があります。`actions/setup-node` に
+`registry-url` を指定すると `NPM_CONFIG_USERCONFIG` が設定され、npm は changesets が書く
+`~/.npmrc` ではなくそちらを読むためです。渡し忘れると setup-node が入れたプレースホルダの
+まま publish され、**npm は認証失敗を 404 で返す**ので権限不足と見分けがつきません。
+
+（0.1.0 はこの設定漏れに気づく前に手元から publish しました。トークンの種類が原因では
+ありません）
 
 ## ライセンス
 
