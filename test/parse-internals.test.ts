@@ -69,6 +69,30 @@ describe("tokenize", () => {
     });
   });
 
+  it("月と週の間隔を読む", () => {
+    expect(tokenize("3か月ごと")[0]).toMatchObject({
+      type: "INTERVAL",
+      value: { unit: "month", n: 3 },
+    });
+    expect(tokenize("3ヶ月おき")[0]).toMatchObject({
+      type: "INTERVAL",
+      value: { unit: "month", n: 3 },
+    });
+    expect(tokenize("2週間ごと")[0]).toMatchObject({
+      type: "INTERVAL",
+      value: { unit: "week", n: 2 },
+    });
+  });
+
+  it("「毎」で終わる間隔は後ろに頻度語が続くと採らない", () => {
+    expect(tokenize("1月毎日").map((token) => token.type)).toEqual(["MONTH", "FREQ"]);
+    expect(tokenize("15分毎").map((token) => token.type)).toEqual(["INTERVAL"]);
+  });
+
+  it("「時台」の「台」は区切り", () => {
+    expect(tokenize("9時台").map((token) => token.type)).toEqual(["TIME", "SEP"]);
+  });
+
   it("「月末」を FREQ より優先する", () => {
     expect(tokenize("毎月末")[0]).toMatchObject({ type: "DOM_SPECIAL", value: "L" });
     expect(tokenize("毎月15日")[0]).toMatchObject({ type: "FREQ", value: "month" });

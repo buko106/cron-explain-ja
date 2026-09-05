@@ -1,3 +1,4 @@
+import { DOM_SPEC, type FieldSpec, HOUR_SPEC, MINUTE_SPEC, MONTH_SPEC } from "../cron/fields";
 import { formatField } from "../cron/values";
 import { formatHour } from "../explain/time";
 import type {
@@ -9,7 +10,7 @@ import type {
   Token,
 } from "../types";
 import { type FreqUnit, TIME_OF_DAY } from "./dictionary";
-import type { IntervalValue, TimeValue } from "./tokenize";
+import type { IntervalUnit, IntervalValue, TimeValue } from "./tokenize";
 
 export interface Penalty {
   reason: string;
@@ -41,6 +42,52 @@ const FREQ_LABELS: Record<FreqUnit, string> = {
   year: "毎年",
 };
 
+const INTERVAL_LABELS: Record<IntervalUnit, string> = {
+  minute: "分",
+  hour: "時",
+  day: "日",
+  week: "週",
+  month: "月",
+};
+
+/** 値の並びを持つスロット。時刻は時と分を持つため別扱い */
+type ListName = "minute" | "dom" | "dow" | "month";
+
+/** 間隔の単位と、その起点になる値の並び */
+const INTERVAL_LIST: Partial<Record<IntervalUnit, ListName>> = {
+  minute: "minute",
+  day: "dom",
+  month: "month",
+};
+
+/** 値の並びの 1 要素。`from === to` は単独の値、それ以外は「AからBまで」 */
+interface Span {
+  from: number;
+  to: number;
+}
+
+interface ValueList {
+  items: Span[];
+  /** 「から」を読んだが、範囲の終端がまだ来ていない */
+  pendingRange: boolean;
+  /** 刻みの起点、あるいは分の値として読み終えた（二重指定として数えない） */
+  consumed: boolean;
+}
+
+function emptyList(): ValueList {
+  return { items: [], pendingRange: false, consumed: false };
+}
+
+function pushValue(list: ValueList, value: number): void {
+  const last = list.items[list.items.length - 1];
+  if (list.pendingRange && last !== undefined) {
+    last.to = value;
+    list.pendingRange = false;
+    return;
+  }
+  list.items.push({ from: value, to: value });
+}
+
 /** 値の並びを、連続部分を範囲に畳んだ構文木にする */
 function valuesToAst(values: number[]): FieldAST {
   const sorted = [...new Set(values)].sort((a, b) => a - b);
@@ -71,6 +118,47 @@ function valuesToAst(values: number[]): FieldAST {
   return items.length === 1 ? only : { kind: "list", items };
 }
 
+/**
+ * 値の並びを構文木にする。
+ * 「AからBまで」と書かれた範囲は範囲のまま残す（`valuesToAst` は 3 個以上の連なりしか
+ * 範囲に畳まないため、`28,31` のように意味が変わってしまう）。
+ */
+function listToAst(list: ValueList): FieldAST {
+  if (list.items.every((span) => span.from === span.to)) {
+    return valuesToAst(list.items.map((span) => span.from));
+  }
+  const items = list.items.map<FieldAST>((span) =>
+    span.from === span.to
+      ? { kind: "value", value: span.from }
+      : { kind: "range", from: span.from, to: span.to },
+  );
+  const only = items[0];
+  /* c8 ignore next -- 範囲を含むなら 1 個以上ある */
+  if (only === undefined) return ANY;
+  return items.length === 1 ? only : { kind: "list", items };
+}
+
+/**
+ * 「AからBまでNごと」「AからNごと」の起点を取り出す。
+ * 範囲として書かれていなければ null を返し、値の並びは値のまま残す。
+ */
+function consumeBase(list: ValueList, spec: FieldSpec): FieldAST | null {
+  const span = list.items[0];
+  if (span === undefined || list.items.length !== 1) return null;
+  if (!list.pendingRange && span.from === span.to) return null;
+  list.consumed = true;
+  return { kind: "range", from: span.from, to: list.pendingRange ? spec.max : span.to };
+}
+
+/** 刻みの構文木。起点が全域を覆うなら省く（`1-31/3` は「3日ごと」と同じ集合） */
+function stepAst(base: FieldAST | null, step: number, spec: FieldSpec): FieldAST {
+  if (base === null) return { kind: "step", base: ANY, step };
+  if (base.kind === "range" && base.from === spec.min && base.to === spec.max) {
+    return { kind: "step", base: ANY, step };
+  }
+  return { kind: "step", base, step };
+}
+
 function hourCandidates(from: number, to: number): Ambiguity["candidates"] {
   const candidates: Ambiguity["candidates"] = [];
   for (let hour = from; hour <= to; hour++) {
@@ -82,13 +170,14 @@ function hourCandidates(from: number, to: number): Ambiguity["candidates"] {
 interface Collected {
   times: TimeValue[];
   timeMode: "list" | "range";
-  minutes: number[];
-  interval: IntervalValue | null;
-  dows: number[];
+  lists: Record<ListName, ValueList>;
+  intervals: Partial<Record<IntervalUnit, number>>;
+  /** 同じ単位の間隔が 2 回書かれた */
+  duplicateIntervals: IntervalUnit[];
+  /** 値の並びと間隔のどちらが後に書かれたか（§2.3.5 の後勝ち） */
+  lastAssign: Partial<Record<ListName, "values" | "interval">>;
   nths: Array<{ weekday: number; nth: number }>;
-  doms: number[];
   domSpecial: "L" | number | null;
-  months: number[];
   freqs: FreqUnit[];
   standaloneWords: TimeOfDayWord[];
   unknown: number;
@@ -100,13 +189,12 @@ function collect(tokens: Token[]): Collected {
   const state: Collected = {
     times: [],
     timeMode: "list",
-    minutes: [],
-    interval: null,
-    dows: [],
+    lists: { minute: emptyList(), dom: emptyList(), dow: emptyList(), month: emptyList() },
+    intervals: {},
+    duplicateIntervals: [],
+    lastAssign: {},
     nths: [],
-    doms: [],
     domSpecial: null,
-    months: [],
     freqs: [],
     standaloneWords: [],
     unknown: 0,
@@ -116,12 +204,21 @@ function collect(tokens: Token[]): Collected {
 
   let pendingWord: TimeOfDayWord | null = null;
   let pendingNth: number | null = null;
+  /** 直前に読んだ値がどのスロットのものか（「から」の係り先） */
+  let last: ListName | "time" | null = null;
 
   const flushWord = () => {
     if (pendingWord !== null) {
       state.standaloneWords.push(pendingWord);
       pendingWord = null;
     }
+  };
+
+  /** 値を並びに足し、「から」の係り先として返す */
+  const addValues = (name: ListName, values: number[]): ListName => {
+    for (const value of values) pushValue(state.lists[name], value);
+    state.lastAssign[name] = "values";
+    return name;
   };
 
   for (const token of tokens) {
@@ -132,6 +229,7 @@ function collect(tokens: Token[]): Collected {
       case "TIME_OF_DAY":
         flushWord();
         pendingWord = token.value as TimeOfDayWord;
+        last = "time";
         break;
 
       case "TIME": {
@@ -155,21 +253,36 @@ function collect(tokens: Token[]): Collected {
           pendingWord = null;
         }
         state.times.push({ hour, minute: time.minute });
+        last = "time";
         break;
       }
 
       case "MINUTE":
         flushWord();
-        state.minutes.push(token.value as number);
+        last = addValues("minute", [token.value as number]);
         break;
 
-      case "INTERVAL":
+      case "INTERVAL": {
         flushWord();
-        state.interval = token.value as IntervalValue;
+        const interval = token.value as IntervalValue;
+        if (state.intervals[interval.unit] !== undefined) {
+          state.duplicateIntervals.push(interval.unit);
+        }
+        state.intervals[interval.unit] = interval.n;
+        const name = INTERVAL_LIST[interval.unit];
+        if (name !== undefined) state.lastAssign[name] = "interval";
+        // cron に週の刻みは無い。「毎週」として扱い、fill で note を付ける
+        if (interval.unit === "week") state.freqs.push("week");
+        // 「3か月ごと」だけでは何日に動くか決まらないので「毎月」と同じ期待を置く
+        if (interval.unit === "month") state.freqs.push("month");
         break;
+      }
 
       case "RANGE_FROM":
-        if (state.times.length > 0) state.timeMode = "range";
+        if (last === "time") state.timeMode = "range";
+        else if (last !== null && state.lists[last].items.length > 0) {
+          state.lists[last].pendingRange = true;
+        }
         break;
 
       case "RANGE_TO":
@@ -187,37 +300,42 @@ function collect(tokens: Token[]): Collected {
           state.nths.push({ weekday, nth: pendingNth });
           pendingNth = null;
         } else {
-          state.dows.push(weekday);
+          last = addValues("dow", [weekday]);
         }
         break;
       }
 
       case "DOW_SET":
         flushWord();
-        state.dows.push(...(token.value as number[]));
+        last = addValues("dow", token.value as number[]);
         break;
 
       case "DOM":
         flushWord();
-        state.doms.push(token.value as number);
+        last = addValues("dom", [token.value as number]);
         break;
 
       case "DOM_SPECIAL": {
         flushWord();
         const value = token.value as "L" | number;
         if (value === "L") state.domSpecial = "L";
-        else state.doms.push(value);
+        else last = addValues("dom", [value]);
         break;
       }
 
       case "MONTH":
         flushWord();
-        state.months.push(token.value as number);
+        last = addValues("month", [token.value as number]);
         break;
 
       case "FREQ":
         flushWord();
         state.freqs.push(token.value as FreqUnit);
+        break;
+
+      case "AND":
+        // 「午前0時と正午」の「正午」は 2 つ目の時刻。前の語をここで切る
+        flushWord();
         break;
 
       default:
@@ -257,12 +375,44 @@ export function fill(tokens: Token[], options: ParseOptions = {}): Slots {
     slots.penalties.push({ reason, amount });
   };
 
+  /** 同じフィールドに 2 通りの指定が並んだとき（§2.3.5 の「2 回代入」） */
+  const noteConflict = (label: string) => {
+    slots.notes.push(`「${label}」の指定が 2 通りあるため、後に書かれた方を採用しました`);
+    penalize("同じフィールドへの二重指定", 0.2);
+  };
+
+  for (const unit of state.duplicateIntervals) noteConflict(INTERVAL_LABELS[unit]);
+
+  /** 時間帯の語を時に落とす。幅のある語は曖昧さとして報告する */
+  const resolveWord = (word: TimeOfDayWord): number => {
+    const spec = TIME_OF_DAY[word];
+    const override = options.timeOfDay?.[word];
+    // 「正午」のように時が一意に定まる語は曖昧ではない
+    if (spec.range[0] !== spec.range[1] && override === undefined) {
+      slots.ambiguities.push({
+        field: "hour",
+        question: `「${word}」は何時ですか？`,
+        candidates: hourCandidates(spec.range[0], spec.range[1]),
+      });
+      penalize("時刻を表す語が曖昧", 0.3);
+    }
+    return override ?? spec.default ?? defaultHour;
+  };
+
+  // 時刻に結び付かなかった時間帯語は、それ自体が 1 つの時刻（「午前0時と正午」）
+  const times = [...state.times];
+  for (const word of state.standaloneWords) times.push({ hour: resolveWord(word), minute: 0 });
+
   /* ---------------- 時刻 ---------------- */
 
-  const rangeTimes = state.timeMode === "range" && state.times.length >= 2;
+  const minutes = state.lists.minute;
+  const minuteStep = state.intervals.minute;
+  const hourStep = state.intervals.hour;
+  const rangeTimes = state.timeMode === "range" && times.length >= 2;
+
   const noteHourRange = () => {
-    const from = state.times[0];
-    const to = state.times[1];
+    const from = times[0];
+    const to = times[1];
     /* c8 ignore next -- rangeTimes が真なら 2 件ある */
     if (from === undefined || to === undefined) return;
     slots.notes.push(
@@ -273,8 +423,8 @@ export function fill(tokens: Token[], options: ParseOptions = {}): Slots {
   };
 
   const hourRangeAst = (): FieldAST | null => {
-    const from = state.times[0];
-    const to = state.times[1];
+    const from = times[0];
+    const to = times[1];
     /* c8 ignore next -- rangeTimes が真なら 2 件ある */
     if (from === undefined || to === undefined) return null;
     return { kind: "range", from: from.hour, to: to.hour };
@@ -282,30 +432,40 @@ export function fill(tokens: Token[], options: ParseOptions = {}): Slots {
 
   if (state.freqs.includes("minute")) {
     slots.minute = ANY;
-    slots.hour = ANY;
-  } else if (state.interval !== null && state.interval.unit !== "day") {
-    const interval = state.interval;
-    if (interval.unit === "minute") {
-      slots.minute = { kind: "step", base: ANY, step: interval.n };
-    } else {
-      slots.hour = { kind: "step", base: ANY, step: interval.n };
-      const minute = state.minutes[0] ?? state.times[0]?.minute ?? 0;
-      slots.minute = { kind: "value", value: minute };
+    // 「午前9時台の毎分」のように時が書かれていれば、その時の中での毎分
+    if (rangeTimes) {
+      const range = hourRangeAst();
+      /* c8 ignore next -- rangeTimes が真なら必ず取れる */
+      if (range !== null) slots.hour = range;
+      noteHourRange();
+    } else if (times.length > 0) {
+      slots.hour = valuesToAst(times.map((time) => time.hour));
+    }
+  } else if (minuteStep !== undefined || hourStep !== undefined) {
+    if (minuteStep !== undefined) {
+      // 「1分から59分まで2分ごと」の起点。範囲が書かれていなければ全域からの刻み
+      slots.minute = stepAst(consumeBase(minutes, MINUTE_SPEC), minuteStep, MINUTE_SPEC);
+    }
+    const hourRange = rangeTimes ? hourRangeAst() : null;
+    if (hourStep !== undefined) {
+      slots.hour = stepAst(hourRange, hourStep, HOUR_SPEC);
+      if (minuteStep === undefined) {
+        slots.minute =
+          minutes.items.length > 0
+            ? listToAst(minutes)
+            : { kind: "value", value: times[0]?.minute ?? 0 };
+        minutes.consumed = true;
+      }
+    } else if (hourRange !== null) {
+      slots.hour = hourRange;
     }
 
     if (rangeTimes) {
-      const range = hourRangeAst();
-      if (range !== null) {
-        slots.hour =
-          interval.unit === "hour" && range.kind === "range"
-            ? { kind: "step", base: range, step: interval.n }
-            : range;
-      }
       noteHourRange();
-    } else if (state.times.length > 0) {
-      const first = state.times[0];
+    } else if (times.length > 0) {
+      const first = times[0];
       /* c8 ignore next -- times.length > 0 なら必ず取れる */
-      if (first !== undefined && interval.unit === "minute") {
+      if (first !== undefined && minuteStep !== undefined) {
         slots.hour = { kind: "value", value: first.hour };
       }
       slots.ambiguities.push({
@@ -318,49 +478,38 @@ export function fill(tokens: Token[], options: ParseOptions = {}): Slots {
       });
       penalize("間隔と時刻の併用", 0.2);
     }
-  } else if (state.times.length > 0) {
+
+    if (minutes.items.length > 0 && !minutes.consumed) {
+      noteConflict(INTERVAL_LABELS.minute);
+      if (state.lastAssign.minute === "values") slots.minute = listToAst(minutes);
+    }
+  } else if (times.length > 0) {
     if (rangeTimes) {
       const range = hourRangeAst();
       if (range !== null) slots.hour = range;
-      slots.minute = { kind: "value", value: state.times[0]?.minute ?? 0 };
+      slots.minute = { kind: "value", value: times[0]?.minute ?? 0 };
       noteHourRange();
     } else {
-      const hours = state.times.map((time) => time.hour);
-      const minutes = [...new Set(state.times.map((time) => time.minute))];
+      const hours = times.map((time) => time.hour);
+      const timeMinutes = [...new Set(times.map((time) => time.minute))];
       slots.hour = valuesToAst(hours);
-      const only = minutes[0];
-      if (minutes.length === 1 && only !== undefined) {
+      const only = timeMinutes[0];
+      if (timeMinutes.length === 1 && only !== undefined) {
         slots.minute = { kind: "value", value: only };
       } else {
-        slots.minute = valuesToAst(minutes);
+        slots.minute = valuesToAst(timeMinutes);
         slots.notes.push(
           "複数の時刻が指定されているため、時と分のすべての組み合わせで実行されます",
         );
         penalize("時と分の組み合わせが曖昧", 0.1);
       }
     }
-  } else if (state.standaloneWords.length > 0) {
-    const word = state.standaloneWords[state.standaloneWords.length - 1] as TimeOfDayWord;
-    const spec = TIME_OF_DAY[word];
-    const override = options.timeOfDay?.[word];
-    const hour = override ?? spec.default ?? defaultHour;
-    slots.hour = { kind: "value", value: hour };
-    slots.minute = { kind: "value", value: 0 };
-    // 「正午」のように時が一意に定まる語は曖昧ではない
-    if (spec.range[0] !== spec.range[1] && override === undefined) {
-      slots.ambiguities.push({
-        field: "hour",
-        question: `「${word}」は何時ですか？`,
-        candidates: hourCandidates(spec.range[0], spec.range[1]),
-      });
-      penalize("時刻を表す語が曖昧", 0.3);
-    }
   } else if (state.freqs.includes("hour")) {
     slots.hour = ANY;
-    slots.minute = { kind: "value", value: state.minutes[0] ?? 0 };
-  } else if (state.minutes.length > 0) {
+    slots.minute = minutes.items.length > 0 ? listToAst(minutes) : { kind: "value", value: 0 };
+  } else if (minutes.items.length > 0) {
     slots.hour = ANY;
-    slots.minute = valuesToAst(state.minutes);
+    slots.minute = listToAst(minutes);
   } else {
     slots.hour = { kind: "value", value: defaultHour };
     slots.minute = { kind: "value", value: 0 };
@@ -375,6 +524,12 @@ export function fill(tokens: Token[], options: ParseOptions = {}): Slots {
 
   /* ---------------- 日付・曜日 ---------------- */
 
+  const doms = state.lists.dom;
+  const dows = state.lists.dow;
+  const months = state.lists.month;
+  const dayStep = state.intervals.day;
+  const monthStep = state.intervals.month;
+
   if (state.nths.length > 0) {
     const items = state.nths.map<FieldAST>((entry) => ({
       kind: "nth",
@@ -385,20 +540,43 @@ export function fill(tokens: Token[], options: ParseOptions = {}): Slots {
     /* c8 ignore next -- nths.length > 0 なら必ず取れる */
     slots.dow = items.length === 1 && first !== undefined ? first : { kind: "list", items };
     for (const entry of state.nths) slots.extensions.add(entry.nth === -1 ? "L" : "#");
-  } else if (state.dows.length > 0) {
-    slots.dow = valuesToAst(state.dows);
+  } else if (dows.items.length > 0) {
+    slots.dow = listToAst(dows);
   }
 
   if (state.domSpecial === "L") {
     slots.dom = { kind: "last" };
     slots.extensions.add("L");
-  } else if (state.doms.length > 0) {
-    slots.dom = valuesToAst(state.doms);
-  } else if (state.interval?.unit === "day") {
-    slots.dom = { kind: "step", base: ANY, step: state.interval.n };
+    if (dayStep !== undefined) noteConflict(INTERVAL_LABELS.day);
+  } else if (dayStep !== undefined) {
+    // 「1日から3日ごと」は 1 日を起点にした刻み
+    slots.dom = stepAst(consumeBase(doms, DOM_SPEC), dayStep, DOM_SPEC);
+    if (doms.items.length > 0 && !doms.consumed) {
+      noteConflict(INTERVAL_LABELS.day);
+      if (state.lastAssign.dom === "values") slots.dom = listToAst(doms);
+    }
+  } else if (doms.items.length > 0) {
+    slots.dom = listToAst(doms);
   }
 
-  if (state.months.length > 0) slots.month = valuesToAst(state.months);
+  if (monthStep !== undefined) {
+    slots.month = stepAst(consumeBase(months, MONTH_SPEC), monthStep, MONTH_SPEC);
+    if (months.items.length > 0 && !months.consumed) {
+      noteConflict(INTERVAL_LABELS.month);
+      if (state.lastAssign.month === "values") slots.month = listToAst(months);
+    }
+  } else if (months.items.length > 0) {
+    slots.month = listToAst(months);
+  }
+
+  const weekStep = state.intervals.week;
+  if (weekStep !== undefined) {
+    slots.notes.push(
+      `cron には週単位の刻みが無いため「${weekStep}週間ごと」は表現できません。` +
+        "毎週として解釈しました",
+    );
+    penalize("週単位の刻み", 0.3);
+  }
 
   /* ---------------- 頻度語の期待 ---------------- */
 
@@ -467,12 +645,13 @@ export function fill(tokens: Token[], options: ParseOptions = {}): Slots {
   }
 
   const hasDateToken =
-    state.dows.length > 0 ||
+    dows.items.length > 0 ||
     state.nths.length > 0 ||
-    state.doms.length > 0 ||
+    doms.items.length > 0 ||
     state.domSpecial !== null ||
-    state.months.length > 0;
-  if (state.freqs.length === 0 && !hasDateToken && state.interval === null) {
+    months.items.length > 0;
+  const hasInterval = Object.keys(state.intervals).length > 0;
+  if (state.freqs.length === 0 && !hasDateToken && !hasInterval) {
     slots.notes.push("頻度が明示されていないため、毎日として解釈しました");
     penalize("頻度語が無い", 0.2);
   }

@@ -1,11 +1,29 @@
 import { describe, expect, it } from "vitest";
-import { explain, parse, validate } from "../src/index";
+import { explain, explainDetailed, parse, validate } from "../src/index";
 import { type ExplainFixture, loadFixtures, type ParseFixture } from "./helpers/fixtures";
 
 const parseFixtures = loadFixtures<ParseFixture>("parse.jsonl").filter(
   (fixture) => fixture.expr !== null,
 );
-const explainFixtures = loadFixtures<ExplainFixture>("explain.jsonl");
+const explainFixtures = [
+  ...loadFixtures<ExplainFixture>("explain.jsonl"),
+  ...loadFixtures<ExplainFixture>("explain-real.jsonl"),
+];
+
+/**
+ * 式が実際に動く値の集合。
+ * `0-6` と `*`、曜日の `7` と `0` のような表記の違いは吸収し、意味だけを比べる。
+ */
+function signature(expression: string): string {
+  const { fields } = explainDetailed(expression);
+  return JSON.stringify([
+    fields.minute.values,
+    fields.hour.values,
+    fields.dayOfMonth.values,
+    fields.month.values,
+    fields.dayOfWeek.values,
+  ]);
+}
 
 describe("往復: parse → explain → parse", () => {
   it.each(parseFixtures.map((fixture) => fixture.text))("%s", (text) => {
@@ -19,11 +37,19 @@ describe("往復: parse → explain → parse", () => {
 });
 
 describe("往復: explain → parse", () => {
-  // 拡張構文と、日本語では一意に表せない式を除く
-  const targets = explainFixtures
-    .filter((fixture) => fixture.extensions === undefined)
-    .map((fixture) => fixture.expr)
-    .filter((expr) => !expr.startsWith("@"));
+  // 拡張構文と秒付きは日本語で一意に表せないため除く（§3.3）
+  const targets = [
+    ...new Set(
+      explainFixtures
+        .filter(
+          (fixture) =>
+            fixture.error === undefined &&
+            fixture.extensions === undefined &&
+            fixture.seconds !== true,
+        )
+        .map((fixture) => fixture.expr),
+    ),
+  ];
 
   it.each(targets)("%s", (expression) => {
     const text = explain(expression);
@@ -31,5 +57,20 @@ describe("往復: explain → parse", () => {
     expect(result.expression).not.toBeNull();
     if (result.expression === null) return;
     expect(validate(result.expression).valid).toBe(true);
+    expect(signature(result.expression), `${text} → ${result.expression}`).toBe(
+      signature(expression),
+    );
+  });
+
+  it.each([{ hour: "24h" }, { style: "formal" }] as const)("%o でも意味が変わらない", (options) => {
+    for (const expression of targets) {
+      const text = explain(expression, options);
+      const result = parse(text);
+      expect(result.expression, `${expression} → ${text}`).not.toBeNull();
+      if (result.expression === null) continue;
+      expect(signature(result.expression), `${expression} → ${text} → ${result.expression}`).toBe(
+        signature(expression),
+      );
+    }
   });
 });
