@@ -70,6 +70,9 @@ detail.next; // [Date, Date, Date]
 
 ```ts
 parse("平日の朝9時"); // { expression: '0 9 * * 1-5', confidence: 1, ... }
+parse("毎時9分と39分"); // { expression: '9,39 * * * *', confidence: 1, ... }
+parse("毎月28日から31日までの午前3時"); // { expression: '0 3 28-31 * *', confidence: 1, ... }
+parse("3か月ごとの1日の午前0時"); // { expression: '0 0 1 */3 *', confidence: 1, ... }
 parse("毎日"); // { expression: '0 9 * * *', confidence: 0.6, ambiguities: [{ field: 'hour', ... }] }
 parse("こんにちは"); // { expression: null, confidence: 0, ... }
 ```

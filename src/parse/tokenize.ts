@@ -1,8 +1,10 @@
 import type { TimeOfDayWord, Token } from "../types";
 import { DOM_SPECIAL, DOW, DOW_SET, FREQ, type FreqUnit, NTH } from "./dictionary";
 
+export type IntervalUnit = "minute" | "hour" | "day" | "week" | "month";
+
 export interface IntervalValue {
-  unit: "minute" | "hour" | "day";
+  unit: IntervalUnit;
   n: number;
 }
 
@@ -24,10 +26,13 @@ function inRange(value: number, min: number, max: number): boolean {
 
 /**
  * 長い表現から順に試すため、並び順に意味がある。
+ *
+ * 「毎」で終わる間隔（「15分毎」）は、後ろに頻度語の単位が続く場合だけ採らない。
+ * 「1月毎日」を「1か月ごと」+「日」と切ってしまうのを避けるため。
  */
 const RULES: Rule[] = [
   [
-    /^(\d{1,2})時間(ごと|おき|毎)に?/,
+    /^(\d{1,2})時間(?:ごと|おき|毎(?![分時日週月年]))に?/,
     (m) => {
       const n = int(m[1]);
       if (!inRange(n, 1, 23)) return null;
@@ -35,7 +40,7 @@ const RULES: Rule[] = [
     },
   ],
   [
-    /^(\d{1,2})分(ごと|おき|毎)に?/,
+    /^(\d{1,2})分(?:ごと|おき|毎(?![分時日週月年]))に?/,
     (m) => {
       const n = int(m[1]);
       if (!inRange(n, 1, 59)) return null;
@@ -43,11 +48,28 @@ const RULES: Rule[] = [
     },
   ],
   [
-    /^(\d{1,2})日(ごと|おき|毎)に?/,
+    /^(\d{1,2})日(?:ごと|おき|毎(?![分時日週月年]))に?/,
     (m) => {
       const n = int(m[1]);
       if (!inRange(n, 1, 31)) return null;
       return { type: "INTERVAL", value: { unit: "day", n } satisfies IntervalValue };
+    },
+  ],
+  [
+    // 「か月」の表記ゆれ（か / ヶ / ヵ / ケ / カ / 箇）と、「3月ごと」の省略形を受ける
+    /^(\d{1,2})[かカヵケヶ箇]?月(?:ごと|おき|毎(?![分時日週月年]))に?/,
+    (m) => {
+      const n = int(m[1]);
+      if (!inRange(n, 1, 12)) return null;
+      return { type: "INTERVAL", value: { unit: "month", n } satisfies IntervalValue };
+    },
+  ],
+  [
+    /^(\d{1,2})週間?(?:ごと|おき|毎(?![分時日週月年]))に?/,
+    (m) => {
+      const n = int(m[1]);
+      if (!inRange(n, 1, 52)) return null;
+      return { type: "INTERVAL", value: { unit: "week", n } satisfies IntervalValue };
     },
   ],
   [
@@ -135,7 +157,8 @@ const RULES: Rule[] = [
   [/^(から|以降)/, () => ({ type: "RANGE_FROM" })],
   [/^(まで|以前)/, () => ({ type: "RANGE_TO" })],
   [/^(および|かつ|と|、|,)/, () => ({ type: "AND" })],
-  [/^(の|に|は|が|を|\s|。)+/, () => ({ type: "SEP" })],
+  // 「9時台」の「台」は explain 側の言い回し。意味は直前の時に含まれるので区切りとして読む
+  [/^(の|に|は|が|を|台|\s|。)+/, () => ({ type: "SEP" })],
 ];
 
 /**

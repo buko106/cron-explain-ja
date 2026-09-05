@@ -71,6 +71,15 @@ describe("parse（注記と曖昧さ）", () => {
     expect(result.notes.some((note) => note.includes("朝"))).toBe(true);
   });
 
+  it("「毎年」は月が未指定なら 1 月にして曖昧さを返す", () => {
+    const result = parse("毎年");
+    expect(result.expression).toBe("0 9 1 1 *");
+    expect(result.ambiguities.map((ambiguity) => ambiguity.field).sort()).toEqual([
+      "hour",
+      "month",
+    ]);
+  });
+
   it("曖昧さには候補が付く", () => {
     const [ambiguity] = parse("朝").ambiguities;
     expect(ambiguity?.field).toBe("hour");
@@ -92,5 +101,71 @@ describe("parse（注記と曖昧さ）", () => {
     const result = parse("毎日9時ぴよぴよ");
     expect(result.expression).toBe("0 9 * * *");
     expect(result.confidence).toBeLessThan(1);
+  });
+});
+
+describe("parse（範囲と刻み）", () => {
+  it.each([
+    ["毎月5日から3日ごとの午前0時", "0 0 5-31/3 * *"],
+    ["月初から3日ごとの午前0時", "0 0 */3 * *"],
+    ["1月から3か月ごとの1日の午前0時", "0 0 1 */3 *"],
+    ["3ヶ月ごとの1日の午前0時", "0 0 1 */3 *"],
+    ["6か月おきの1日の午前0時", "0 0 1 */6 *"],
+    ["午前9時から午後5時まで毎分", "* 9-17 * * *"],
+    ["9時から17時まで5分から55分まで10分ごと", "5-55/10 9-17 * * *"],
+    ["1日から3日までと10日から12日までの午前0時", "0 0 1-3,10-12 * *"],
+    ["毎月1日から3日までと15日の午前0時", "0 0 1-3,15 * *"],
+    ["正午と午前0時", "0 0,12 * * *"],
+    ["朝と夕方", "0 9,18 * * *"],
+  ])("%s → %s", (text, expected) => {
+    expect(parse(text).expression).toBe(expected);
+  });
+
+  it("「1月毎日」を「1か月ごと」と切らない", () => {
+    expect(parse("1月毎日午前0時").expression).toBe("0 0 * 1 *");
+  });
+});
+
+describe("parse（同じフィールドへの二重指定）", () => {
+  const conflict = (note: string) => note.includes("2 通り");
+
+  it.each([
+    ["毎時1分と5分ごと", "*/5 * * * *", "分"],
+    ["5分ごとに1分と3分", "1,3 * * * *", "分"],
+    ["毎月1日と3日ごとの午前0時", "0 0 */3 * *", "日"],
+    ["3日ごとの1日の午前0時", "0 0 1 * *", "日"],
+    ["月末の3日ごとの午前0時", "0 0 L * *", "日"],
+    ["1月と3か月ごとの1日の午前0時", "0 0 1 */3 *", "月"],
+    ["3か月ごとの1月の午前0時", "0 0 1 1 *", "月"],
+    ["30分ごとに15分ごと", "*/15 * * * *", "分"],
+  ])("%s は後勝ちにして note と減点を付ける", (text, expected, label) => {
+    const result = parse(text);
+    expect(result.expression).toBe(expected);
+    expect(result.notes.filter(conflict).some((note) => note.includes(label))).toBe(true);
+    expect(result.confidence).toBeLessThan(1);
+  });
+
+  it("範囲として書かれていれば二重指定にしない", () => {
+    const result = parse("毎月1日から3日ごとの午前0時");
+    expect(result.notes.some(conflict)).toBe(false);
+    expect(result.confidence).toBe(1);
+  });
+});
+
+describe("parse（複数の時刻）", () => {
+  it("分が揃わない時刻の並びは組み合わせになると note を付ける", () => {
+    const result = parse("毎日9時と18時30分");
+    expect(result.expression).toBe("0,30 9,18 * * *");
+    expect(result.notes.some((note) => note.includes("組み合わせ"))).toBe(true);
+    expect(result.confidence).toBe(0.9);
+  });
+});
+
+describe("parse（週単位の刻み）", () => {
+  it("cron で表せないことを note にして減点する", () => {
+    const result = parse("2週間ごとの月曜日の午前0時");
+    expect(result.expression).toBe("0 0 * * 1");
+    expect(result.notes.some((note) => note.includes("週単位"))).toBe(true);
+    expect(result.confidence).toBe(0.7);
   });
 });
