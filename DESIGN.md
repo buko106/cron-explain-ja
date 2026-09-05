@@ -1,0 +1,696 @@
+# DESIGN.md — cron-explain-ja 設計書
+
+## 0. 目的とスコープ
+
+cron 式と日本語の自然な表現を相互変換する。
+
+- `explain`: cron 式 → 日本語文
+- `parse`: 日本語文 → cron 式
+- 補助: バリデーション、次回実行日時計算
+- CLI: `cron-ja` コマンドで上記をシェルから利用
+
+### 非目標（v1）
+
+- 英語など他言語への対応
+- LLM や機械学習による解釈
+- 秒フィールド・タイムゾーン変換の完全対応（オプションでの最小対応のみ）
+- 実際のジョブスケジューリング
+
+### 設計原則
+
+1. **決定的**: 同じ入力は常に同じ出力。乱数・外部API・時刻依存なし（`next` を除く）
+2. **ゼロ依存**: ランタイム依存パッケージを持たない（CLI も含む）
+3. **正直な曖昧性**: 解釈が一意でない場合は黙って決めず、`confidence` と `ambiguities` で返す
+4. **拡張の分離**: 標準 5 フィールド cron を中心とし、Quartz 拡張（`L` `#` `W`）は明示的にマーク
+
+---
+
+## 1. 公開 API
+
+### 1.1 エントリポイント
+
+```ts
+export { explain, explainDetailed } from './explain';
+export { parse } from './parse';
+export { validate, next } from './cron';
+export type * from './types';
+```
+
+### 1.2 `explain(expression, options?) => string`
+
+cron 式を 1 文の日本語に変換する。
+
+```ts
+explain('0 9 * * 1-5');           // '平日の午前9時'
+explain('*/15 * * * *');          // '15分ごと'
+explain('0 0 1 * *');             // '毎月1日の午前0時'
+explain('30 18 * * 5');           // '毎週金曜日の午後6時30分'
+explain('0 12 1,15 * *');         // '毎月1日と15日の正午'
+explain('0 */2 * * *');           // '2時間ごと（毎時0分）'
+explain('0 9-17 * * 1-5');        // '平日の午前9時から午後5時まで毎時0分'
+explain('0 0 * 1 *');             // '1月の毎日午前0時'
+explain('0 0 1 1 *');             // '毎年1月1日の午前0時'
+```
+
+不正な式は `CronSyntaxError` を throw する。
+
+#### ExplainOptions
+
+```ts
+interface ExplainOptions {
+  /** 'casual': '毎日9時' / 'formal': '毎日午前9時00分' (default: 'casual') */
+  style?: 'casual' | 'formal';
+  /** '12h': '午後3時' / '24h': '15時' (default: '12h') */
+  hour?: '12h' | '24h';
+  /** 6フィールド（秒付き）として解釈 (default: false) */
+  seconds?: boolean;
+  /** 指定時、末尾に '（Asia/Tokyo）' を付ける */
+  tz?: string;
+  /** 曜日を「平日」「週末」に畳むか (default: true) */
+  collapseWeekdays?: boolean;
+}
+```
+
+### 1.3 `explainDetailed(expression, options?) => Explanation`
+
+```ts
+interface Explanation {
+  text: string;
+  expression: string;              // 正規化済み
+  fields: {
+    second?: FieldExplanation;
+    minute: FieldExplanation;
+    hour: FieldExplanation;
+    dayOfMonth: FieldExplanation;
+    month: FieldExplanation;
+    dayOfWeek: FieldExplanation;
+  };
+  extensions: Array<'L' | '#' | 'W' | '?'>;
+  notes: string[];
+  next: Date[];                    // 次回3回
+}
+
+interface FieldExplanation {
+  raw: string;                    // '1-5'
+  kind: 'any' | 'value' | 'list' | 'range' | 'step' | 'extension';
+  values: number[];               // [1,2,3,4,5]
+  text: string;                   // '平日'
+}
+```
+
+### 1.4 `parse(text, options?) => ParseResult`
+
+```ts
+interface ParseResult {
+  expression: string | null;
+  confidence: number;             // 0.0 – 1.0
+  ambiguities: Ambiguity[];
+  notes: string[];
+  tokens: Token[];                // デバッグ用
+}
+
+interface Ambiguity {
+  field: CronField;
+  question: string;               // '「朝」は何時ですか？'
+  candidates: Array<{ value: number | string; label: string }>;
+}
+
+interface ParseOptions {
+  strict?: boolean;               // default: false
+  defaultHour?: number;           // default: 9
+  timeOfDay?: Partial<Record<TimeOfDayWord, number>>;
+  allowExtensions?: boolean;      // default: false
+}
+```
+
+#### 期待動作
+
+| 入力 | expression | confidence | 備考 |
+|---|---|---|---|
+| 平日の朝9時 | `0 9 * * 1-5` | 1.0 | |
+| 毎日9時半 | `30 9 * * *` | 1.0 | |
+| 毎月15日の夕方6時 | `0 18 15 * *` | 1.0 | |
+| 15分ごと | `*/15 * * * *` | 1.0 | |
+| 2時間おき | `0 */2 * * *` | 1.0 | minute を 0 に固定 |
+| 毎週月曜と金曜の午後3時 | `0 15 * * 1,5` | 1.0 | |
+| 9時から18時まで30分ごと | `*/30 9-18 * * *` | 0.9 | 18時台の扱いに note |
+| 毎日 | `0 9 * * *` | 0.6 | defaultHour 使用、ambiguity 付き |
+| 朝 | `0 9 * * *` | 0.5 | 「毎日」補完 + 曖昧語 |
+| 第2月曜の10時 | `0 10 * * 1#2` | 0.9 | extensions 使用 note |
+| 月末の23時 | `0 23 L * *` | 0.9 | 同上 |
+| 火曜日の15日 | `0 9 15 * 2` | 0.7 | DOM と DOW の OR 挙動を note |
+| こんにちは | `null` | 0.0 | 時間表現が皆無 |
+
+### 1.5 `validate(expression, options?) => ValidationResult`
+
+```ts
+interface ValidationResult {
+  valid: boolean;
+  errors: Array<{ field: CronField | 'expression'; message: string; position?: number }>;
+  warnings: string[];             // '2月30日は存在しません' など
+}
+```
+
+### 1.6 `next(expression, options?) => Date[]`
+
+```ts
+interface NextOptions {
+  from?: Date;                    // default: now
+  count?: number;                 // default: 3
+  tz?: 'UTC' | 'local';           // default: 'local'
+}
+```
+
+### 1.7 エラー型
+
+```ts
+class CronSyntaxError extends Error {
+  field?: CronField;
+  position?: number;
+}
+class ParseAmbiguityError extends Error {   // strict モード時のみ
+  result: ParseResult;
+}
+```
+
+---
+
+## 2. 内部設計
+
+### 2.1 共通: cron 式の構文解析（`src/cron/parser.ts`）
+
+```ts
+interface CronAST {
+  seconds?: FieldAST;
+  minute: FieldAST;
+  hour: FieldAST;
+  dayOfMonth: FieldAST;
+  month: FieldAST;
+  dayOfWeek: FieldAST;
+}
+
+type FieldAST =
+  | { kind: 'any' }                                   // *
+  | { kind: 'value'; value: number }                  // 5
+  | { kind: 'range'; from: number; to: number }       // 1-5
+  | { kind: 'step'; base: FieldAST; step: number }    // */15, 1-10/2
+  | { kind: 'list'; items: FieldAST[] }               // 1,3,5
+  | { kind: 'last'; offset?: number }                 // L, L-3
+  | { kind: 'nth'; weekday: number; nth: number }     // 1#2
+  | { kind: 'nearestWeekday'; day: number }           // 15W
+  | { kind: 'noSpecific' };                           // ?
+```
+
+- 許容範囲: minute 0-59, hour 0-23, dom 1-31, month 1-12, dow 0-7（7 は 0 に正規化）
+- 月名 `JAN`-`DEC`、曜日名 `SUN`-`SAT` を数値に変換
+- マクロ `@daily` `@hourly` `@weekly` `@monthly` `@yearly` `@annually` を展開
+- 位置情報を保持し、エラー時に `position` を返す
+
+### 2.2 explain（cron → 日本語）
+
+#### 2.2.1 フィールド単位の説明（`field.ts`）
+
+| AST | 出力例 |
+|---|---|
+| minute any | （時と組み合わせて「毎分」） |
+| minute value 0 | 「0分」（casual では省略） |
+| minute value 30 | 「30分」→ 時と結合して「9時半」 |
+| minute step 15 | 「15分ごと」 |
+| hour range 9-17 | 「午前9時から午後5時まで」 |
+| dow range 1-5 | 「平日」 |
+| dow list 0,6 | 「週末」 |
+| dow list 1,5 | 「月曜日と金曜日」 |
+| dom value 1 | 「1日」 |
+| dom last | 「月末」 |
+| month value 1 | 「1月」 |
+| dow nth 1#2 | 「第2月曜日」 |
+
+#### 2.2.2 文の組み立て（`compose.ts`）
+
+```
+[年頻度] [月] [日 or 曜日] の [時刻表現]
+```
+
+パターン分岐（優先順）:
+
+1. すべて any → 「毎分」
+2. minute のみ → 「毎時N分」
+3. minute step のみ → 「N分ごと」
+4. hour step → 「N時間ごと（毎時M分）」
+5. dom/month/dow すべて any → 「毎日」+ 時刻
+6. dow のみ → 「毎週X曜日の」/「平日の」/「週末の」+ 時刻
+7. dom のみ → 「毎月N日の」+ 時刻
+8. month + dom → 「毎年M月N日の」+ 時刻
+9. month のみ → 「M月の毎日」+ 時刻
+10. dom と dow の両方 → 「毎月N日およびX曜日の」+ 時刻 + note（OR 挙動）
+
+#### 2.2.3 時刻表現ルール
+
+- `12h` casual: 0→「午前0時」、12→「正午」、13-23→「午後N時」
+- `24h`: 「N時」
+- minute 0: casual では「N時」、formal では「N時00分」
+- minute 30: casual では「N時半」
+- 「深夜」「早朝」など曖昧語は出力側で使わない
+
+#### 2.2.4 範囲・リストの自然化
+
+- 連続した list（`1,2,3`）は range に畳む
+- 曜日 `1-5` → 「平日」、`0,6` → 「週末」、`0-6` → 省略
+- 3 要素以上は「A、B、C」、2 要素は「AとB」
+
+### 2.3 parse（日本語 → cron）
+
+#### 2.3.1 パイプライン
+
+```
+text → normalize() → tokenize() → fill() → emit()
+```
+
+#### 2.3.2 normalize
+
+1. NFKC 正規化
+2. 漢数字 → 算用数字（「半」は残す）
+3. 「時」直前の「午前/午後/朝/夜」は保持
+4. 空白、読点、「の」「に」「は」→ 区切り（「と」は list 用に別トークン）
+5. 文末の動詞句除去（「〜してください」「〜したい」「〜に実行」など）
+
+#### 2.3.3 辞書（`dictionary.ts`）
+
+```ts
+export const DOW: Record<string, number> = {
+  日曜日: 0, 日曜: 0, 月曜日: 1, 月曜: 1, 火曜日: 2, 火曜: 2,
+  水曜日: 3, 水曜: 3, 木曜日: 4, 木曜: 4, 金曜日: 5, 金曜: 5, 土曜日: 6, 土曜: 6,
+};
+
+export const DOW_SET: Record<string, number[]> = {
+  平日: [1, 2, 3, 4, 5],
+  週末: [0, 6],
+  土日: [0, 6],
+};
+
+export const TIME_OF_DAY = {
+  早朝: { default: 6,    range: [4, 7]   },
+  朝:   { default: 9,    range: [6, 10]  },
+  午前: { default: null, range: [0, 11]  },
+  昼:   { default: 12,   range: [11, 13] },
+  正午: { default: 12,   range: [12, 12] },
+  午後: { default: null, range: [12, 23] },
+  夕方: { default: 18,   range: [16, 19] },
+  夜:   { default: 21,   range: [19, 23] },
+  深夜: { default: 2,    range: [0, 4]   },
+  夜中: { default: 2,    range: [0, 4]   },
+} as const;
+
+export const FREQ = {
+  毎分: 'minute', 毎時: 'hour', 毎日: 'day', 毎週: 'week', 毎月: 'month', 毎年: 'year',
+};
+
+export const DOM_SPECIAL = { 月末: 'L', 月初: 1 };
+export const NTH = { 第1: 1, 第2: 2, 第3: 3, 第4: 4, 第5: 5, 最終: 'L' };
+```
+
+単独の「月」「日」は月名・日付と衝突するため曜日辞書から除外し、「月曜」以上の長さでのみ曜日と認識する。
+
+#### 2.3.4 tokenize
+
+```ts
+interface Token {
+  type: 'FREQ' | 'DOW' | 'DOW_SET' | 'DOM' | 'DOM_SPECIAL' | 'MONTH'
+      | 'TIME' | 'TIME_OF_DAY' | 'AMPM' | 'INTERVAL' | 'RANGE_FROM'
+      | 'RANGE_TO' | 'NTH' | 'SEP' | 'AND' | 'UNKNOWN';
+  raw: string;
+  value?: unknown;
+  position: number;
+}
+
+const RULES: Array<[RegExp, (m: RegExpMatchArray) => Token]> = [
+  [/^(\d{1,2})時間(ごと|おき|毎)/,  m => ({ type: 'INTERVAL', unit: 'hour', n: +m[1] })],
+  [/^(\d{1,2})分(ごと|おき|毎)/,    m => ({ type: 'INTERVAL', unit: 'minute', n: +m[1] })],
+  [/^(\d{1,2})時(半|(\d{1,2})分)?/,  m => ({ type: 'TIME', hour: +m[1], minute: m[2]==='半'?30:+(m[3]??0) })],
+  [/^(\d{1,2}):(\d{2})/,           m => ({ type: 'TIME', hour: +m[1], minute: +m[2] })],
+  [/^第([1-5])/,                    m => ({ type: 'NTH', n: +m[1] })],
+  [/^(\d{1,2})月/,                  m => ({ type: 'MONTH', value: +m[1] })],
+  [/^(\d{1,2})日/,                  m => ({ type: 'DOM', value: +m[1] })],
+  [/^(平日|週末|土日)/,             m => ({ type: 'DOW_SET', value: DOW_SET[m[1]] })],
+  [/^(日|月|火|水|木|金|土)曜日?/,  m => ({ type: 'DOW', value: DOW[m[1]+'曜'] })],
+  [/^(早朝|朝|昼|正午|夕方|夜中|深夜|夜)/, m => ({ type: 'TIME_OF_DAY', word: m[1] })],
+  [/^(午前|午後)/,                  m => ({ type: 'AMPM', value: m[1] })],
+  [/^毎(分|時|日|週|月|年)/,        m => ({ type: 'FREQ', value: FREQ['毎'+m[1]] })],
+  [/^月末/,                         () => ({ type: 'DOM_SPECIAL', value: 'L' })],
+  [/^から/,                         () => ({ type: 'RANGE_FROM' })],
+  [/^まで/,                         () => ({ type: 'RANGE_TO' })],
+  [/^(と|、|,)/,                    () => ({ type: 'AND' })],
+  [/^(の|に|は|\s)+/,               () => ({ type: 'SEP' })],
+];
+```
+
+長い表現を先に試す。`UNKNOWN` は減点しつつ無視し、全トークンが `UNKNOWN`/`SEP` なら `expression: null`。
+
+#### 2.3.5 fill（スロット埋め）
+
+```ts
+interface Slots {
+  minute: FieldAST; hour: FieldAST; dom: FieldAST; month: FieldAST; dow: FieldAST;
+  extensions: Set<string>;
+  penalties: Array<{ reason: string; amount: number }>;
+  ambiguities: Ambiguity[];
+  notes: string[];
+}
+```
+
+**時刻**
+
+- `TIME` → hour/minute。直前の `AMPM`/`TIME_OF_DAY` で補正（「午後3時」→15、「夜9時」→21）
+- 補正後 hour が range 外なら note
+- `TIME` 複数 → `AND` なら list、`RANGE_FROM…RANGE_TO` なら range
+- `TIME_OF_DAY` 単独 → `default` 採用、ambiguity、-0.3
+- `INTERVAL` minute N → minute step N
+- `INTERVAL` hour N → hour step N、minute 0
+- 時刻トークン皆無 → `defaultHour`、ambiguity、-0.4
+
+**日付・曜日**
+
+- `DOW` → dow（複数は list）
+- `DOW_SET` → dow range/list
+- `NTH` + `DOW` → nth、extensions `#`
+- `DOM` → dom
+- `DOM_SPECIAL` L → last、extensions `L`
+- `MONTH` → month
+
+**頻度語**
+
+- `毎日` → dom/dow が any を期待（違えば note、-0.1）
+- `毎週` → 直後に `DOW` を期待。なければ ambiguity
+- `毎月` → 直後に `DOM` を期待。なければ ambiguity
+- `毎時` → hour any、minute 未指定なら 0
+- `毎分` → 全 any
+
+**衝突**
+
+- dom と dow が両方非 any → note「標準 cron では OR 条件」、-0.2
+- `INTERVAL` と単独 `TIME` → ambiguity
+- 同フィールドへ list 以外で 2 回代入 → 後勝ち + note、-0.2
+
+**confidence**
+
+```
+confidence = max(0, 1.0 - Σ penalties)
+```
+
+UNKNOWN 1 つにつき -0.1（上限 -0.3）。
+
+#### 2.3.6 emit
+
+FieldAST → 文字列。`allowExtensions: false` かつ extensions 非空なら生成はするが note を付け -0.1。
+
+### 2.4 next
+
+- 分→時→日→月の順で次候補へジャンプ
+- 5 年先まで見つからなければ空配列
+- dom と dow 両指定は OR（Vixie cron 準拠）
+- `L` `#` `W` は v1 非対応 → 空配列 + validate warning
+
+---
+
+## 3. テスト方針
+
+### 3.1 レイヤー
+
+| レイヤー | 対象 | 方式 |
+|---|---|---|
+| 単体 | parser, normalize, tokenize, formatHour など | `it.each` |
+| フィクスチャ | explain / parse の入出力 | JSONL 全件実行 |
+| 往復 | `explain(parse(x))` の意味的一致 | フィクスチャ + 生成 |
+| プロパティ | parser のクラッシュ耐性 | ランダム文字列 |
+| CLI 単体 | commands/*.ts | io 差し替え |
+| CLI E2E | dist/cli.js | execFile |
+| 回帰 | issue 由来 | `test/regression/` |
+
+### 3.2 フィクスチャ形式
+
+`test/fixtures/explain.jsonl`
+
+```jsonl
+{"expr":"0 9 * * 1-5","casual":"平日の午前9時","formal":"平日の午前9時00分","h24":"平日の9時"}
+{"expr":"*/15 * * * *","casual":"15分ごと"}
+{"expr":"0 0 L * *","casual":"毎月月末の午前0時","extensions":["L"]}
+```
+
+`test/fixtures/parse.jsonl`
+
+```jsonl
+{"text":"平日の朝9時","expr":"0 9 * * 1-5","confidence":1.0}
+{"text":"毎日","expr":"0 9 * * *","confidence":0.6,"ambiguities":["hour"]}
+{"text":"こんにちは","expr":null,"confidence":0}
+```
+
+実装前に書き、仕様書として機能させる。
+
+### 3.3 往復テスト
+
+```ts
+for (const { text } of fixtures) {
+  const r1 = parse(text);
+  if (!r1.expression) continue;
+  const r2 = parse(explain(r1.expression));
+  expect(normalizeCron(r2.expression)).toBe(normalizeCron(r1.expression));
+}
+```
+
+### 3.4 組み合わせ生成テスト
+
+時刻 × 曜日 × 頻度語を自動生成し、throw しない・valid・confidence 0-1 のみ検証。
+
+### 3.5 next の検証
+
+`cron-parser` を devDependency として入れ、次回 10 件の一致を比較。
+
+### 3.6 カバレッジ
+
+lines 90% / branches 85%、`dictionary.ts` は 100%。
+
+### 3.7 手動レビュー
+
+実在 crontab 約 200 件の `explain` 出力を一覧化し人手で確認、結果をフィクスチャ化。
+
+---
+
+## 4. CLI
+
+### 4.1 方針
+
+- コマンド名 `cron-ja`（`npx cron-explain-ja` でも起動）
+- 引数解析は `util.parseArgs`、対話は `node:readline/promises`
+- ライブラリの薄いラッパー。CLI 固有ロジックは入力の受け取りと出力整形のみ
+- 人間向け出力とパイプ向け出力（`--json`）を分離
+
+### 4.2 コマンド一覧
+
+```
+cron-ja <command> [args] [options]
+
+Commands:
+  explain   <expr>      cron式を日本語にする
+  parse     <text>      日本語をcron式にする
+  validate  <expr>      cron式を検証する
+  next      <expr>      次回の実行日時を表示する
+  (省略)    <input>     入力を自動判定して explain または parse
+
+Global options:
+  --json                JSON で出力する
+  -q, --quiet           結果のみ出力
+  --no-color            色を無効化（NO_COLOR 環境変数でも可）
+  -h, --help
+  -v, --version
+```
+
+サブコマンド省略時、5〜6 個の空白区切りフィールドで各フィールドが `[0-9*,/\-#LW?A-Za-z@]` のみなら `explain`、それ以外は `parse`。
+
+### 4.3 各コマンド
+
+#### explain
+
+```
+Options:
+  --style <casual|formal>     default: casual
+  --hour <12h|24h>            default: 12h
+  --seconds
+  --tz <zone>
+  --detailed                  フィールド別内訳と次回3回を表示
+```
+
+```
+$ cron-ja explain "0 9 * * 1-5"
+平日の午前9時
+
+$ cron-ja explain "0 9 * * 1-5" --detailed
+平日の午前9時
+
+  分      0        0分
+  時      9        午前9時
+  日      *        毎日
+  月      *        毎月
+  曜日    1-5      平日
+
+次回:
+  2026-09-07 (月) 09:00
+  2026-09-08 (火) 09:00
+  2026-09-09 (水) 09:00
+
+$ cron-ja explain "0 0 L * *"
+毎月月末の午前0時
+note: 'L' は Quartz 拡張です。標準の cron では動作しません。
+```
+
+#### parse
+
+```
+Options:
+  --strict                    曖昧なら失敗（exit 3）
+  --default-hour <n>          default: 9
+  --allow-extensions
+  -i, --interactive           曖昧な点を対話で確認
+```
+
+```
+$ cron-ja parse "平日の朝9時"
+0 9 * * 1-5
+
+$ cron-ja parse "毎日"
+0 9 * * *
+warn: 時刻が指定されていないため 9時 としました（confidence: 0.6）
+      --default-hour で変更できます
+
+$ cron-ja parse "毎日" --strict
+error: 時刻が曖昧です: 「毎日」は何時ですか？
+exit status 3
+
+$ cron-ja parse "毎日" -i
+? 「毎日」は何時ですか？ (0-23) › 9
+0 9 * * *
+
+$ cron-ja parse "こんにちは"
+error: 時間表現が見つかりません
+exit status 2
+```
+
+`--interactive` は stdin が TTY でなければ `--strict` 相当。
+
+#### validate
+
+```
+$ cron-ja validate "0 9 * * 1-5"
+ok
+
+$ cron-ja validate "0 25 * * *"
+error: 時 フィールドの値 25 は範囲外です (0-23)
+  0 25 * * *
+    ^^
+exit status 2
+
+$ cron-ja validate "0 0 30 2 *"
+ok
+warn: 2月30日は存在しないため、このジョブは実行されません
+```
+
+#### next
+
+```
+Options:
+  -n, --count <n>             default: 3
+  --from <iso-datetime>       default: 現在時刻
+  --tz <UTC|local>            default: local
+  --format <human|iso|unix>   default: human
+```
+
+```
+$ cron-ja next "0 9 * * 1-5" -n 5
+2026-09-07 (月) 09:00
+2026-09-08 (火) 09:00
+...
+```
+
+### 4.4 入力の受け取り方
+
+引数が無く stdin が TTY でない場合、または `-` を渡した場合は stdin を 1 行ずつ処理する。
+
+```
+$ crontab -l | grep -v '^#' | cut -d' ' -f1-5 | cron-ja explain
+平日の午前9時
+毎日午前3時
+15分ごと
+
+$ cat schedules.txt | cron-ja parse --json
+{"input":"平日の朝9時","expression":"0 9 * * 1-5","confidence":1,...}
+{"input":"毎日","expression":"0 9 * * *","confidence":0.6,...}
+```
+
+複数行時の `--json` は JSONL で `input` を付加。エラー行は `{"input":"...","error":"..."}` として続行。
+
+### 4.5 出力の書き分け
+
+| 状況 | stdout | stderr |
+|---|---|---|
+| 通常 | 結果 | note / warn |
+| `--quiet` | 結果 | エラーのみ |
+| `--json` | JSON | エラー（非 JSON） |
+| エラー | 空 | `error: ...` |
+
+`$(cron-ja parse "...")` で結果だけを受け取れるよう、note/warn は stderr。色は `NO_COLOR` または非 TTY で無効。
+
+### 4.6 終了コード
+
+| code | 意味 |
+|---|---|
+| 0 | 成功 |
+| 1 | 内部エラー |
+| 2 | 入力エラー |
+| 3 | 曖昧（`--strict` 時のみ） |
+
+複数行入力では最大のコードを返す。
+
+### 4.7 ヘルプ
+
+`args.ts` にオプション定義と説明を同一オブジェクトで持ち、`--help` を生成する。
+
+```ts
+const OPTIONS = {
+  style: { type: 'string', description: '出力スタイル (casual|formal)', default: 'casual', commands: ['explain'] },
+  json:  { type: 'boolean', description: 'JSON で出力', commands: '*' },
+} as const;
+```
+
+### 4.8 テスト
+
+- `commands/*.ts` は `(args, io) => Promise<number>` とし、`io` を差し替えて単体テスト
+- E2E は `dist/cli.js` を `execFile` で実行し、`--version` 一致・stdin パイプ・exit code・`--json` の parse 可否を確認
+- ヘルプはスナップショット
+
+### 4.9 将来の拡張
+
+- `cron-ja completion <bash|zsh|fish>`
+- `cron-ja explain --watch <crontab-path>`
+- `cron-ja parse --suggest`
+
+---
+
+## 5. マイルストーン
+
+| Ver | 内容 |
+|---|---|
+| 0.1.0 | cron parser, explain（casual/12h）, validate, CLI 骨格（explain/validate） |
+| 0.2.0 | parse 最小構成（TIME + DOW + FREQ）, 往復テスト, CLI parse |
+| 0.3.0 | parse 拡張（INTERVAL, RANGE, DOM, MONTH）, ambiguity, CLI `-i` |
+| 0.4.0 | explain オプション（formal/24h）, next, CLI next / --detailed |
+| 0.5.0 | Quartz 拡張（L, #, W）, seconds, stdin 複数行 |
+| 1.0.0 | API 凍結、ドキュメント整備 |
+
+---
+
+## 6. 未決事項
+
+- 「18時まで30分ごと」が 18:00 を含むか 18:30 まで含むか（暫定: `9-18`、note で明示）
+- 「毎週」単独のデフォルト曜日（暫定: 月曜、ambiguity 付き）
+- 「土日」の出力順（暫定: `0,6`）
+- `explain` 文末の「に実行」オプションの要否
+- CLI の `--tz` で IANA タイムゾーンを扱うか（v1 は UTC/local のみ）
