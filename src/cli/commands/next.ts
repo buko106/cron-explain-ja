@@ -11,16 +11,18 @@ import {
   EXIT_OK,
   enumOption,
   formatDateHuman,
+  formatDateIso,
   intOption,
   reportError,
   reportWarn,
+  resolveZone,
   stringOption,
 } from "./shared";
 
-export function nextOptions(args: CliArgs): NextOptions {
+export function nextOptions(args: CliArgs, tz: string): NextOptions {
   const options: NextOptions = {
     count: intOption(args, "count", 3),
-    tz: enumOption(args, "tz", ["UTC", "local"] as const, "local"),
+    tz,
   };
   if (boolOption(args, "seconds")) options.seconds = true;
 
@@ -39,7 +41,8 @@ export function nextOptions(args: CliArgs): NextOptions {
  * `cron-ja next`
  */
 export async function nextCommand(args: CliArgs, io: IO): Promise<number> {
-  const options = nextOptions(args);
+  const tz = resolveZone(stringOption(args, "tz"));
+  const options = nextOptions(args, tz);
   const format = enumOption(args, "format", ["human", "iso", "unix"] as const, "human");
   const json = boolOption(args, "json");
   const quiet = boolOption(args, "quiet");
@@ -64,7 +67,8 @@ export async function nextCommand(args: CliArgs, io: IO): Promise<number> {
     }
 
     if (json) {
-      const payload = { next: dates.map((date) => date.toISOString()) };
+      // 機械向けなので日時は UTC 正規化のまま。どのゾーンで数えたかは tz で示す
+      const payload = { tz, next: dates.map((date) => date.toISOString()) };
       io.out(JSON.stringify(multiple ? { input, ...payload } : payload));
       continue;
     }
@@ -78,14 +82,9 @@ export async function nextCommand(args: CliArgs, io: IO): Promise<number> {
     }
 
     for (const date of dates) {
-      if (format === "iso") io.out(date.toISOString());
+      if (format === "iso") io.out(formatDateIso(date, tz));
       else if (format === "unix") io.out(String(Math.floor(date.getTime() / 1000)));
-      else {
-        const opts: { tz?: "UTC" | "local"; seconds?: boolean } = {};
-        if (options.tz !== undefined) opts.tz = options.tz;
-        if (options.seconds === true) opts.seconds = true;
-        io.out(formatDateHuman(date, opts));
-      }
+      else io.out(formatDateHuman(date, { tz, seconds: options.seconds === true }));
     }
   }
 

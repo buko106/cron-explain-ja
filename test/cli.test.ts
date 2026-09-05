@@ -236,11 +236,64 @@ describe("run: next", () => {
   it("--format iso / unix", async () => {
     const isoIO = io();
     await run(["next", "0 9 * * *", "--format", "iso", "-n", "1"], isoIO);
-    expect(isoIO.stdout[0]).toMatch(/T.*Z$/);
+    // 既定は Asia/Tokyo なのでオフセット付きで出る
+    expect(isoIO.stdout[0]).toMatch(/^\d{4}-\d{2}-\d{2}T09:00:00\+09:00$/);
+
+    const utcIO = io();
+    await run(["next", "0 9 * * *", "--format", "iso", "--tz", "UTC", "-n", "1"], utcIO);
+    expect(utcIO.stdout[0]).toMatch(/^\d{4}-\d{2}-\d{2}T09:00:00Z$/);
+
+    const nyIO = io();
+    await run(
+      ["next", "0 9 * * *", "--format", "iso", "--tz", "America/New_York", "-n", "1"],
+      nyIO,
+    );
+    expect(nyIO.stdout[0]).toMatch(/^\d{4}-\d{2}-\d{2}T09:00:00-0[45]:00$/);
 
     const unixIO = io();
     await run(["next", "0 9 * * *", "--format", "unix", "-n", "1"], unixIO);
     expect(unixIO.stdout[0]).toMatch(/^\d+$/);
+  });
+
+  it("--tz は IANA のゾーン名を受け付ける", async () => {
+    const memory = io();
+    await run(
+      [
+        "next",
+        "0 9 * * *",
+        "--tz",
+        "America/New_York",
+        "--from",
+        "2026-06-15T00:00:00Z",
+        "-n",
+        "1",
+      ],
+      memory,
+    );
+    expect(memory.stdout).toEqual(["2026-06-15 (月) 09:00"]);
+  });
+
+  it("--tz が既定なら Asia/Tokyo で数える", async () => {
+    // 2026-06-14T15:00Z = 2026-06-15 00:00 JST
+    const memory = io();
+    await run(["next", "0 9 * * *", "--from", "2026-06-14T15:00:00Z", "-n", "1"], memory);
+    expect(memory.stdout).toEqual(["2026-06-15 (月) 09:00"]);
+
+    const json = io();
+    await run(["next", "0 9 * * *", "--from", "2026-06-14T15:00:00Z", "-n", "1", "--json"], json);
+    expect(JSON.parse(json.stdout[0] ?? "{}")).toEqual({
+      tz: "Asia/Tokyo",
+      next: ["2026-06-15T00:00:00.000Z"],
+    });
+  });
+
+  it("--tz が不正なら exit 2", async () => {
+    const memory = io();
+    expect(await run(["next", "0 9 * * *", "--tz", "Nowhere/Nothing"], memory)).toBe(2);
+    expect(memory.stderr[0]).toContain("Nowhere/Nothing");
+
+    const explainIO = io();
+    expect(await run(["explain", "0 9 * * *", "--tz", "Nowhere/Nothing"], explainIO)).toBe(2);
   });
 
   it("--from が不正なら exit 2", async () => {

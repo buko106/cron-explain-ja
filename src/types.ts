@@ -56,7 +56,12 @@ export interface ExplainOptions extends ParserOptions {
   style?: "casual" | "formal";
   /** '12h': 「午後3時」 / '24h': 「15時」 */
   hour?: "12h" | "24h";
-  /** 指定時、末尾に「（Asia/Tokyo）」を付ける */
+  /**
+   * cron 式が動くタイムゾーン。IANA のゾーン名か `'local'`。
+   *
+   * `explain` では指定したときだけ末尾に「（Asia/Tokyo）」と併記する（既定では付けない）。
+   * `explainDetailed` では `next` の計算にも使う（未指定なら 'Asia/Tokyo'）。
+   */
   tz?: string;
   /** 曜日を「平日」「週末」に畳むか */
   collapseWeekdays?: boolean;
@@ -179,6 +184,9 @@ export interface NextOptions extends ParserOptions {
   from?: Date;
   /** 取得件数。既定は 3 */
   count?: number;
-  /** 解釈するタイムゾーン。既定は 'local' */
-  tz?: "UTC" | "local";
+  /**
+   * 壁時計を解釈するタイムゾーン。IANA のゾーン名（'Asia/Tokyo' 'America/New_York' …）か、
+   * 実行環境のゾーンを指す `'local'`。既定は 'Asia/Tokyo'
+   */
+  tz?: string;
 }

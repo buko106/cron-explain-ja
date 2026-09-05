@@ -9,7 +9,7 @@ Options:
       --style <casual|formal>出力スタイル（既定: casual）
       --hour <12h|24h>      時刻の表記（既定: 12h）
       --seconds             6 フィールド（秒付き）として解釈する
-      --tz <zone>           explain: 併記するタイムゾーン名 / next: UTC または local
+      --tz <zone>           タイムゾーン（IANA 名 / local）。explain は併記のみ、next の既定は Asia/Tokyo
       --detailed            フィールド別の内訳と次回3回を表示する
 
 Global options:
@@ -29,7 +29,7 @@ exports[`ヘルプ（スナップショット） > next 1`] = `
 
 Options:
       --seconds             6 フィールド（秒付き）として解釈する
-      --tz <zone>           explain: 併記するタイムゾーン名 / next: UTC または local
+      --tz <zone>           タイムゾーン（IANA 名 / local）。explain は併記のみ、next の既定は Asia/Tokyo
   -n, --count <n>           表示件数（既定: 3）
       --from <iso-datetime> 起点の日時（ISO 8601）
       --format <human|iso|unix>出力形式（既定: human）

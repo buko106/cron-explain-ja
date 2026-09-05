@@ -6,10 +6,12 @@ import {
   formatField,
   HOUR_SPEC,
   hasExtension,
+  LOCAL_TIME_ZONE,
   MINUTE_SPEC,
   MONTH_SPEC,
   next,
   parseExpression,
+  resolveTimeZone,
   SECOND_SPEC,
   validate,
 } from "../cron";
@@ -44,6 +46,11 @@ function parserOptions(options: ExplainOptions): ParserOptions {
   return options.seconds === true ? { seconds: true } : {};
 }
 
+/** tz は「この式が動くゾーン」なので、指定されていれば next の時計にも渡す */
+function timeZoneOption(options: ExplainOptions): { tz?: string } {
+  return options.tz === undefined || options.tz === "" ? {} : { tz: options.tz };
+}
+
 /**
  * cron 式を 1 文の日本語に変換する。
  *
@@ -52,11 +59,16 @@ function parserOptions(options: ExplainOptions): ParserOptions {
  * ```
  *
  * @throws {CronSyntaxError} 式が不正な場合
+ * @throws {CronTimeZoneError} `tz` を解釈できない場合
  */
 export function explain(expression: string, options: ExplainOptions = {}): string {
   const parsed = parseExpression(expression, parserOptions(options));
   const text = compose(parsed.ast, resolve(options));
-  return options.tz === undefined || options.tz === "" ? text : `${text}（${options.tz}）`;
+  const tz = options.tz;
+  if (tz === undefined || tz === "") return text;
+  // 名前は必ず検証する。'local' はゾーン名ではないので解決後の名前を併記する
+  const resolved = resolveTimeZone(tz);
+  return `${text}（${tz === LOCAL_TIME_ZONE ? resolved : tz}）`;
 }
 
 function kindOf(ast: FieldAST): FieldExplanation["kind"] {
@@ -96,6 +108,11 @@ export function formatExpression(ast: CronAST): string {
 
 /**
  * cron 式をフィールド別の内訳・注意書き・次回実行日時つきで説明する。
+ *
+ * `next` は `options.tz` のタイムゾーンで計算する（未指定なら `'Asia/Tokyo'`）。
+ *
+ * @throws {CronSyntaxError} 式が不正な場合
+ * @throws {CronTimeZoneError} `tz` を解釈できない場合
  */
 export function explainDetailed(expression: string, options: ExplainOptions = {}): Explanation {
   const parsed = parseExpression(expression, parserOptions(options));
@@ -150,6 +167,6 @@ export function explainDetailed(expression: string, options: ExplainOptions = {}
     fields,
     extensions: parsed.extensions,
     notes: warnings,
-    next: next(expression, { ...parserOptions(options), count: 3 }),
+    next: next(expression, { ...parserOptions(options), ...timeZoneOption(options), count: 3 }),
   };
 }

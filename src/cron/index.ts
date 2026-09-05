@@ -14,3 +14,12 @@ export { next } from "./next";
 export { type ParsedExpression, parseExpression } from "./parser";
 export { validate } from "./validate";
 export { coversAll, expandField, formatField, hasExtension, isAny, toRanges } from "./values";
+export {
+  type Clock,
+  clockFor,
+  DEFAULT_TIME_ZONE,
+  LOCAL_TIME_ZONE,
+  offsetMinutes,
+  resolveTimeZone,
+  type WallClock,
+} from "./zone";

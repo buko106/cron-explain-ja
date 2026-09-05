@@ -164,9 +164,13 @@ interface ValidationResult {
 interface NextOptions {
   from?: Date;                    // default: now
   count?: number;                 // default: 3
-  tz?: 'UTC' | 'local';           // default: 'local'
+  tz?: string;                    // IANA ゾーン名 または 'local'。default: 'Asia/Tokyo'
 }
 ```
+
+`tz` は壁時計を解釈するタイムゾーン。`'Asia/Tokyo'` `'America/New_York'` のような IANA の
+ゾーン名か、実行環境のゾーンを指す `'local'` を受け付ける。解釈できない名前は
+`CronTimeZoneError`。実行環境の `TZ` には依存しない（`'local'` を明示したときだけ従う）。
 
 ### 1.7 エラー型
 
@@ -469,6 +473,18 @@ FieldAST → 文字列。`allowExtensions: false` かつ extensions 非空なら
 - 5 年先まで見つからなければ空配列
 - dom と dow 両指定は OR（Vixie cron 準拠）
 - `L` `#` `W` は v1 非対応 → 空配列 + validate warning
+- 探索は**壁時計の上を歩く**。暦の繰り上げは `Date.UTC` の純粋な計算で行い、
+  実際の瞬間に直すのは候補が確定したときだけにする（`Intl` は 1 件につき数回しか呼ばない）
+- 壁時計とタイムゾーンの対応は `src/cron/zone.ts` の `Clock` が持つ。`UTC` だけは
+  `Intl` を使わない実装に分けてある
+- 夏時間の境界は次のように決める（`Intl` だけで実装。ランタイム依存は足さない）
+  - 壁時計が存在しない（春の飛び）: **切り替え直後に寄せて 1 回動かす**。
+    New York の `30 2 * * *` は 2026-03-08 に 03:30 EDT で動く（Vixie cron / cron-parser と同じ）
+  - 壁時計が 2 回ある（秋の巻き戻し）: **早い方（切り替え前）で 1 回だけ**動かす。
+    New York の `30 1 * * *` は 2026-11-01 の 01:30 EDT だけで、01:30 EST では動かさない
+  - 後者は式によらず一律。Vixie cron / cron-parser は時が `*` の式に限り巻き戻した 1 時間を
+    もう一度動かすが、ここでは「1 つの壁時計は 1 回」という単純な規則に揃えた
+    （変えるなら `src/cron/next.ts` の探索ループを、重なりの区間だけ 2 周させる形にする）
 
 ---
 
@@ -693,9 +709,20 @@ warn: 2月30日は存在しないため、このジョブは実行されませ�
 Options:
   -n, --count <n>             default: 3
   --from <iso-datetime>       default: 現在時刻
-  --tz <UTC|local>            default: local
+  --tz <zone>                 IANA ゾーン名 または local。default: Asia/Tokyo
   --format <human|iso|unix>   default: human
 ```
+
+`--format` の出力はいずれも `--tz` のゾーンで表す。
+
+| format | 例 |
+|---|---|
+| `human` | `2026-09-07 (月) 09:00`（ゾーンの壁時計） |
+| `iso` | `2026-09-07T09:00:00+09:00`（オフセット付き。オフセット 0 は `Z`） |
+| `unix` | `1757203200`（ゾーンに依存しない） |
+
+`--json` の日時は `toISOString()` のまま（UTC 正規化）で、どのゾーンで数えたかは `tz`
+フィールドで示す。
 
 ```
 $ cron-ja next "0 9 * * 1-5" -n 5
@@ -882,10 +909,31 @@ const OPTIONS = {
 - 「まで」の来なかった「から」は範囲を作らない。「9時と17時から」は `9-17` ではなく `9,17`。
   「と」で並べた値に後から「から」が付いても、終端が無ければ範囲として読む根拠がない
 
+#### タイムゾーンを開いたときに決めたこと
+
+- **既定のタイムゾーンは `Asia/Tokyo`**。日本語の cron 説明ライブラリなので、
+  実行環境の `TZ`（CI や本番コンテナではたいてい UTC）に結果が左右される方が事故が多い。
+  実行環境のゾーンで見たいときは `tz: 'local'` を明示する
+- `NextOptions.tz` は `'UTC' | 'local'` から `string` に広げる。`'UTC'` は IANA 名でもあるので
+  既存の指定はそのまま動き、`'local'` だけを特別扱いの語として残す。
+  `timeZone` の新設や `Clock` の公開は 0.x の API を太らせるので採らない
+- **`tz` の意味は「この cron 式が動くタイムゾーン」の 1 つに揃える**。
+  `explain` はそれを併記に使い、`next` は時計に使う。CLI の `--tz` も 1 つの意味になった
+- ただし **`ExplainOptions.tz` に既定値は入れない**。既定を入れると `explain('0 9 * * *')` が
+  「毎日午前9時（Asia/Tokyo）」になり、実在 crontab から起こしたフィクスチャ 209 件が
+  全部書き換えになる。併記は明示したときだけ
+- `explainDetailed` の `next` は `tz` で計算する。併記だけして次回は別ゾーンで数える、
+  という食い違いを残さない
+- ゾーン名の検証と正規化は `Intl.DateTimeFormat(...).resolvedOptions().timeZone` に任せる。
+  実行環境が知っている名前が常に正になり、`asia/tokyo` や `JST` のような別名も揃う。
+  ゾーン一覧を自前で持つと ICU の版とずれる
+- `--format=iso` はオフセット付き（`2026-09-07T09:00:00+09:00`）に変える。
+  ゾーンを指定したのに `Z` で出るのは分かりにくい。オフセット 0 は `Z` のまま
+- 夏時間の境界の扱いは §2.4 に書いた
+
 ### 残っているもの
 
 - `explain` 文末の「に実行」オプションの要否
-- CLI の `--tz` で IANA タイムゾーンを扱うか（v1 は UTC/local のみ）
 - `next` の探索上限（現在は 5 年、超えると見つかった分だけ返す）を設定可能にするか
 - Quartz の `LW`（月末最後の平日）が未対応。`L` `L-3` `15W` は解釈できるが `LW` は
   `FieldAST` に対応する種別がない（§2.1）。実在の crontab では稀なため見送った

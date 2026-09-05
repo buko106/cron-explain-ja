@@ -15,6 +15,7 @@ import {
   padDisplay,
   reportError,
   reportNote,
+  resolveZone,
   stringOption,
 } from "./shared";
 
@@ -34,7 +35,11 @@ export function explainOptions(args: CliArgs): ExplainOptions {
   };
   if (boolOption(args, "seconds")) options.seconds = true;
   const tz = stringOption(args, "tz");
-  if (tz !== undefined) options.tz = tz;
+  if (tz !== undefined) {
+    // 併記にしか使わないが、解釈できない名前はここで exit 2 に落とす
+    resolveZone(tz);
+    options.tz = tz;
+  }
   return options;
 }
 
@@ -54,9 +59,11 @@ function detailedLines(expression: string, options: ExplainOptions, io: IO): str
   }
 
   if (detail.next.length > 0) {
+    // next は options.tz で計算されているので、表示も同じゾーンの壁時計にする
+    const tz = resolveZone(options.tz);
     lines.push("", "次回:");
     for (const date of detail.next) {
-      lines.push(`  ${formatDateHuman(date, { seconds: options.seconds === true })}`);
+      lines.push(`  ${formatDateHuman(date, { tz, seconds: options.seconds === true })}`);
     }
   }
   return lines.map((line) => (line === detail.text ? line : dim(io, line)));

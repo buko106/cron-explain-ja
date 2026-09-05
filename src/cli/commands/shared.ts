@@ -1,3 +1,4 @@
+import { clockFor, offsetMinutes, resolveTimeZone } from "../../cron";
 import type { CliArgs } from "../args";
 import { CliUsageError } from "../args";
 import type { IO } from "../io";
@@ -93,22 +94,41 @@ function pad2(value: number): string {
   return value < 10 ? `0${value}` : String(value);
 }
 
-/** 「2026-09-07 (月) 09:00」 */
-export function formatDateHuman(
-  date: Date,
-  options: { tz?: "UTC" | "local"; seconds?: boolean } = {},
-): string {
-  const utc = options.tz === "UTC";
-  const year = utc ? date.getUTCFullYear() : date.getFullYear();
-  const month = (utc ? date.getUTCMonth() : date.getMonth()) + 1;
-  const day = utc ? date.getUTCDate() : date.getDate();
-  const hour = utc ? date.getUTCHours() : date.getHours();
-  const minute = utc ? date.getUTCMinutes() : date.getMinutes();
-  const second = utc ? date.getUTCSeconds() : date.getSeconds();
-  const weekday = DOW_SHORT[utc ? date.getUTCDay() : date.getDay()] ?? "";
+/**
+ * ゾーン名を解決する。解釈できなければ {@link CliUsageError}（exit 2）にする。
+ */
+export function resolveZone(tz: string | undefined): string {
+  try {
+    return resolveTimeZone(tz);
+  } catch (error) {
+    throw new CliUsageError(error instanceof Error ? error.message : String(error));
+  }
+}
+
+/**
+ * 「2026-09-07 (月) 09:00」。壁時計は `tz`（解決済みのゾーン名）で読む。
+ */
+export function formatDateHuman(date: Date, options: { tz: string; seconds?: boolean }): string {
+  const wall = clockFor(options.tz).parts(date);
+  const weekday = DOW_SHORT[wall.dayOfWeek] ?? "";
   const time =
     options.seconds === true
-      ? `${pad2(hour)}:${pad2(minute)}:${pad2(second)}`
-      : `${pad2(hour)}:${pad2(minute)}`;
-  return `${year}-${pad2(month)}-${pad2(day)} (${weekday}) ${time}`;
+      ? `${pad2(wall.hour)}:${pad2(wall.minute)}:${pad2(wall.second)}`
+      : `${pad2(wall.hour)}:${pad2(wall.minute)}`;
+  return `${wall.year}-${pad2(wall.month)}-${pad2(wall.day)} (${weekday}) ${time}`;
+}
+
+/**
+ * 「2026-09-07T09:00:00+09:00」。オフセット 0 は `Z` で表す。
+ */
+export function formatDateIso(date: Date, tz: string): string {
+  const wall = clockFor(tz).parts(date);
+  const offset = offsetMinutes(tz, date);
+  const absolute = Math.abs(offset);
+  const zone =
+    offset === 0
+      ? "Z"
+      : `${offset < 0 ? "-" : "+"}${pad2(Math.floor(absolute / 60))}:${pad2(absolute % 60)}`;
+  const day = `${String(wall.year).padStart(4, "0")}-${pad2(wall.month)}-${pad2(wall.day)}`;
+  return `${day}T${pad2(wall.hour)}:${pad2(wall.minute)}:${pad2(wall.second)}${zone}`;
 }

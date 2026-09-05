@@ -46,3 +46,24 @@ jobs:
       - run: node dist/cli.js --version
       - run: node -e "import(require('node:url').pathToFileURL('dist/index.js').href).then(() => console.log('esm ok'))"
       - run: node --input-type=commonjs -e "require('./dist/index.cjs'); console.log('cjs ok')"
+      # 古い Node では Intl の挙動が違いうるが vitest は動かせないので、
+      # タイムゾーン解釈だけここでスモークする（既定の Asia/Tokyo と IANA 指定）
+      - name: timezone smoke
+        run: |
+          node --input-type=commonjs -e "
+            const { next } = require('./dist/index.cjs');
+            const wall = (d, tz) => new Intl.DateTimeFormat('en-CA', { timeZone: tz,
+              hourCycle: 'h23', hour: '2-digit', minute: '2-digit' }).format(d);
+            const from = new Date('2026-06-14T00:00:00Z');
+            const [tokyo] = next('30 9 * * *', { from, count: 1 });
+            if (tokyo.toISOString() !== '2026-06-14T00:30:00.000Z') {
+              throw new Error('既定が Asia/Tokyo になっていない: ' + tokyo.toISOString());
+            }
+            for (const tz of ['UTC', 'America/New_York', 'Europe/London', 'Australia/Lord_Howe']) {
+              const [date] = next('30 9 * * *', { from, count: 1, tz });
+              if (wall(date, tz) !== '09:30') {
+                throw new Error(tz + ' の壁時計が 09:30 でない: ' + wall(date, tz));
+              }
+            }
+            console.log('timezone ok');
+          "
