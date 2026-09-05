@@ -168,12 +168,16 @@ main にマージすると Release ワークフローが「Version Packages」PR
 | Secret | 用途 |
 |---|---|
 | `NPM_TOKEN` | npm への publish。`cron-explain-ja` に対する Read and write 権限 |
-| `RELEASE_TOKEN` | Version PR に CI を走らせるための PAT。Contents と Pull requests の Read and write |
+| `RELEASE_TOKEN` | Version PR に CI を走らせるための classic PAT（`repo` スコープ） |
 
-`RELEASE_TOKEN` が要るのは、**ビルトインの `GITHUB_TOKEN` が作った PR はワークフローを
-起動しない**（再帰防止のための GitHub の仕様）ためです。これが無いと Version PR に
-必須チェックが付かず、ブランチ保護でマージできません。未設定でも `GITHUB_TOKEN` に
-フォールバックするので、リリース自体は動きます。
+`RELEASE_TOKEN` が要るのは、ビルトインの `GITHUB_TOKEN` で push すると **Version PR の
+CI が承認待ち（`action_required`）で止まる**ためです。承認前の run は check run を作らない
+ので必須チェックが埋まらず、ブランチ保護でマージできません。write 権限を持つユーザーの
+PAT で push すればアクターがそのユーザーになり、承認なしで CI が走ります。
+
+fine-grained トークンは changesets のアクションで push に失敗する報告があるため、
+classic PAT を使ってください。未設定でも `GITHUB_TOKEN` にフォールバックするので、
+リリース自体は動きます（Version PR の承認だけ手作業になります）。
 
 なお Granular Access Token は**新規パッケージを作成できません**。初回公開だけは
 `npm login` した手元から `npm publish` する必要があります。
