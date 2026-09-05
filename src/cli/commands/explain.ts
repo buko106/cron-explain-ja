@@ -1,0 +1,110 @@
+import { CronSyntaxError } from "../../errors";
+import { explain, explainDetailed } from "../../explain";
+import type { ExplainOptions } from "../../types";
+import type { CliArgs } from "../args";
+import type { IO } from "../io";
+import { dim } from "../io";
+import {
+  boolOption,
+  collectInputs,
+  displayWidth,
+  EXIT_INPUT,
+  EXIT_OK,
+  enumOption,
+  formatDateHuman,
+  padDisplay,
+  reportError,
+  reportNote,
+  stringOption,
+} from "./shared";
+
+const FIELD_LABELS: Array<[keyof ReturnType<typeof explainDetailed>["fields"], string]> = [
+  ["second", "秒"],
+  ["minute", "分"],
+  ["hour", "時"],
+  ["dayOfMonth", "日"],
+  ["month", "月"],
+  ["dayOfWeek", "曜日"],
+];
+
+export function explainOptions(args: CliArgs): ExplainOptions {
+  const options: ExplainOptions = {
+    style: enumOption(args, "style", ["casual", "formal"] as const, "casual"),
+    hour: enumOption(args, "hour", ["12h", "24h"] as const, "12h"),
+  };
+  if (boolOption(args, "seconds")) options.seconds = true;
+  const tz = stringOption(args, "tz");
+  if (tz !== undefined) options.tz = tz;
+  return options;
+}
+
+function detailedLines(expression: string, options: ExplainOptions, io: IO): string[] {
+  const detail = explainDetailed(expression, options);
+  const lines: string[] = [detail.text, ""];
+
+  const rows: Array<[string, string, string]> = [];
+  for (const [key, label] of FIELD_LABELS) {
+    const field = detail.fields[key];
+    if (field === undefined) continue;
+    rows.push([label, field.raw, field.text]);
+  }
+  const rawWidth = Math.max(...rows.map(([, raw]) => displayWidth(raw)), 6);
+  for (const [label, raw, text] of rows) {
+    lines.push(`  ${padDisplay(label, 8)}${padDisplay(raw, rawWidth + 2)}${text}`);
+  }
+
+  if (detail.next.length > 0) {
+    lines.push("", "次回:");
+    for (const date of detail.next) {
+      lines.push(`  ${formatDateHuman(date, { seconds: options.seconds === true })}`);
+    }
+  }
+  return lines.map((line) => (line === detail.text ? line : dim(io, line)));
+}
+
+/**
+ * `cron-ja explain`
+ */
+export async function explainCommand(args: CliArgs, io: IO): Promise<number> {
+  const options = explainOptions(args);
+  const detailed = boolOption(args, "detailed");
+  const json = boolOption(args, "json");
+  const quiet = boolOption(args, "quiet");
+
+  const inputs = await collectInputs(args, io);
+  const multiple = inputs.length > 1;
+  let code = EXIT_OK;
+
+  for (const input of inputs) {
+    try {
+      if (json) {
+        const detail = explainDetailed(input, options);
+        io.out(JSON.stringify(multiple ? { input, ...detail } : detail));
+        continue;
+      }
+
+      if (detailed) {
+        for (const line of detailedLines(input, options, io)) io.out(line);
+      } else {
+        io.out(explain(input, options));
+        if (!quiet) {
+          for (const note of explainDetailed(input, options).notes) reportNote(io, note);
+        }
+      }
+    } catch (error) {
+      if (error instanceof CronSyntaxError) {
+        if (json && multiple) {
+          io.out(JSON.stringify({ input, error: error.message }));
+        } else {
+          reportError(io, multiple ? `${input}: ${error.message}` : error.message);
+        }
+        code = Math.max(code, EXIT_INPUT);
+        continue;
+      }
+      /* c8 ignore next 2 -- 想定外の例外は main で処理する */
+      throw error;
+    }
+  }
+
+  return code;
+}
