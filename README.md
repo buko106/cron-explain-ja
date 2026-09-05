@@ -152,6 +152,32 @@ pnpm lint && pnpm typecheck && pnpm test && pnpm build
 
 詳細な設計は [DESIGN.md](./DESIGN.md) を参照してください。
 
+### リリース
+
+変更は [changesets](https://github.com/changesets/changesets) で記録します。
+
+```bash
+pnpm changeset        # 変更の種類（major/minor/patch）と説明を書く
+```
+
+main にマージすると Release ワークフローが「Version Packages」PR を作り、その PR を
+マージすると npm に公開されます。
+
+必要な GitHub Secrets は次の 2 つです。
+
+| Secret | 用途 |
+|---|---|
+| `NPM_TOKEN` | npm への publish。`cron-explain-ja` に対する Read and write 権限 |
+| `RELEASE_TOKEN` | Version PR に CI を走らせるための PAT。Contents と Pull requests の Read and write |
+
+`RELEASE_TOKEN` が要るのは、**ビルトインの `GITHUB_TOKEN` が作った PR はワークフローを
+起動しない**（再帰防止のための GitHub の仕様）ためです。これが無いと Version PR に
+必須チェックが付かず、ブランチ保護でマージできません。未設定でも `GITHUB_TOKEN` に
+フォールバックするので、リリース自体は動きます。
+
+なお Granular Access Token は**新規パッケージを作成できません**。初回公開だけは
+`npm login` した手元から `npm publish` する必要があります。
+
 ## ライセンス
 
 [MIT](./LICENSE)
