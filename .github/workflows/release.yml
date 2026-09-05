@@ -9,7 +9,12 @@ jobs:
   release:
     runs-on: ubuntu-latest
     steps:
+      # checkout が .git/config に埋める http.extraheader は、changesets@v1 が
+      # ~/.netrc に書くトークンより優先される。PAT をここで渡さないと push だけが
+      # ビルトイン GITHUB_TOKEN（bot）名義になり、Version PR の CI が承認待ちで止まる。
       - uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.RELEASE_TOKEN || secrets.GITHUB_TOKEN }}
       - uses: pnpm/action-setup@v4
         with: { version: 9 }
       # @changesets/cli 3.x は module.enableCompileCache() を使うため Node 22.11+ が必要。
