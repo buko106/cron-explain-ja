@@ -179,10 +179,15 @@ fine-grained トークンは changesets のアクションで push に失敗す�
 classic PAT を使ってください。未設定でも `GITHUB_TOKEN` にフォールバックするので、
 リリース自体は動きます（Version PR の承認だけ手作業になります）。
 
-`RELEASE_TOKEN` は `actions/checkout` の `token` にも渡します。checkout が
-`.git/config` に埋める `http.extraheader` は、changesets のアクション（v1）が
-`~/.netrc` に書くトークンより優先されるためです。渡さないと PR の作成だけが PAT 名義に
-なり、**push は bot 名義のまま**なので Version PR の更新のたびに承認待ちに戻ります。
+`RELEASE_TOKEN` は `actions/checkout` の `token` にも渡しています。changesets の
+アクションは v2 から既定で GitHub API 経由で push するため通常は不要ですが、
+`push-with-git-cli` を有効にすると checkout が `.git/config` に埋めた
+`http.extraheader` が使われ、push だけ bot 名義に戻るためです。
+
+アクションは **v2 以上**を使ってください。v1 は publish の出力から `New tag:` の行を
+探して公開を検知しますが、`@changesets/cli` 3.x はその形式で出力しないため、
+**タグの push と GitHub Release の作成が黙って飛ばされます**（publish 自体は成功するので
+気づきにくい）。v2 は NDJSON のファイル経由で結果を受け取るのでこの問題がありません。
 
 `NPM_TOKEN` は `NODE_AUTH_TOKEN` としても渡す必要があります。`actions/setup-node` に
 `registry-url` を指定すると `NPM_CONFIG_USERCONFIG` が設定され、npm は changesets が書く
