@@ -1,5 +1,12 @@
 # cron-explain-ja
 
+## 0.1.3
+
+### Patch Changes
+
+- 2efec1d: README にリリース手順の補足を追加した。changesets のアクションは v2 以上が必要で、
+  v1 では `@changesets/cli` 3.x の出力を解釈できずタグと GitHub Release が作られない。
+
 ## 0.1.2
 
 ### Patch Changes
