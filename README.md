@@ -187,6 +187,12 @@ classic PAT を使ってください。未設定でも `GITHUB_TOKEN` にフォ�
 （0.1.0 はこの設定漏れに気づく前に手元から publish しました。トークンの種類が原因では
 ありません）
 
+**Settings → Actions → General → Actions permissions** は、サードパーティのアクションを
+許可する設定にしておく必要があります。ワークフローが `pnpm/action-setup` と
+`changesets/action` を使っているためです。オーナー製と GitHub 製だけに絞ると、CI が
+`startup_failure` になります。この失敗はジョブが 1 つも作られないため **Re-run ボタンが
+出ず**、設定を戻したあとに新しい run を起こす必要があります。
+
 ## ライセンス
 
 [MIT](./LICENSE)
