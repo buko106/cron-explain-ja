@@ -202,14 +202,20 @@ classic PAT を使ってください。未設定でも `GITHUB_TOKEN` にフォ�
 `changesets/action` を使っているためです。オーナー製と GitHub 製だけに絞ると
 `startup_failure` になります。
 
-「Allow specified actions」で絞る場合は、**バージョンを固定しない**でください。
+「Allow specified actions」で絞る場合は、**カンマ区切りで、バージョンを固定せずに**
+入力してください。
 
 ```
-pnpm/action-setup@*
-changesets/action@*
+pnpm/action-setup@*, changesets/action@*
 ```
 
-`changesets/action@v1` のように固定すると、アクションを v2 に上げた時点で弾かれます。
+改行や空白で区切ると全体が 1 個のパターンとして扱われ、何にも一致しなくなります。
+エラーには登録済みのパターンが表示されるため、一見すると一致しているように見えて
+原因が分かりにくいので注意してください。
+
+`changesets/action@v1` のようにバージョンを固定すると、アクションを v2 に上げた
+時点で弾かれます。`actions/checkout` と `actions/setup-node` は GitHub 製なので
+記載は不要です。
 
 この失敗はジョブが 1 つも作られないため **Re-run ボタンが出ません**。設定を戻したあと、
 main に何か push して新しい run を起こす必要があります。
