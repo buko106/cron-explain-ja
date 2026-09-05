@@ -5,6 +5,10 @@ cron 式と日本語を相互変換するライブラリ / CLI。ランタイム
 > [!NOTE]
 > 空の `0.0.0` が誤って npm に公開されるのを防ぐため、`package.json` に一時的に
 > `"private": true` を設定しています。**初回公開の直前にこの行を削除してください。**
+>
+> changesets は既定では private なパッケージの版を上げないため、`.changeset/config.json`
+> で `privatePackages.version` を有効にしています。これにより「Version Packages」PR は
+> 通常どおり作られ、`changeset publish` だけが `private` を見てスキップします。
 
 ```ts
 import { explain, parse } from "cron-explain-ja";
