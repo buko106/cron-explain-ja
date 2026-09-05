@@ -116,6 +116,7 @@ export type TokenType =
   | "MINUTE"
   | "TIME_OF_DAY"
   | "AMPM"
+  | "HOUR_SPAN"
   | "INTERVAL"
   | "RANGE_FROM"
   | "RANGE_TO"

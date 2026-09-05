@@ -59,6 +59,7 @@ export function describeMinuteValues(ast: FieldAST): string {
 export type MinutePart =
   | { kind: "any" }
   | { kind: "step"; text: string }
+  | { kind: "rangeStep"; from: number; to: number; step: number }
   | { kind: "single"; value: number }
   | { kind: "values"; text: string };
 
@@ -72,30 +73,39 @@ export function minutePart(ast: FieldAST): MinutePart {
   const step = fullRangeStep(ast, MINUTE_SPEC);
   if (step !== undefined) return { kind: "step", text: `${step}分ごと` };
   const ranged = rangeStep(ast, MINUTE_SPEC);
-  if (ranged !== undefined) {
-    return {
-      kind: "step",
-      text: `${ranged.from}分から${ranged.to}分まで${ranged.step}分ごと`,
-    };
-  }
+  if (ranged !== undefined) return { kind: "rangeStep", ...ranged };
   const values = expandField(ast, MINUTE_SPEC);
   const first = values[0];
   if (values.length === 1 && first !== undefined) return { kind: "single", value: first };
   return { kind: "values", text: describeMinuteValues(ast) };
 }
 
-/** 「午前9時台の」に続けるときの分の表現 */
+/** 前に何も置かずに単独で読める分の表現 */
 export function minuteBare(part: MinutePart): string {
   switch (part.kind) {
     case "any":
       return "毎分";
     case "step":
       return part.text;
+    case "rangeStep":
+      return `${part.from}分から${part.to}分まで${part.step}分ごと`;
     case "single":
       return `${part.value}分`;
     case "values":
       return part.text;
   }
+}
+
+/**
+ * 時の節に続けるときの、時の中での分の表現。
+ * 刻みは時をまたがないので、上限が 59 分なら「59分まで」は何も足さない。
+ * 時の範囲の「まで」と重なって読みにくくするだけなので落とす。
+ */
+export function minuteWithinHour(part: MinutePart): string {
+  if (part.kind !== "rangeStep") return minuteBare(part);
+  const { from, to, step } = part;
+  if (to === MINUTE_SPEC.max) return `${from}分から${step}分ごと`;
+  return `${from}分から${to}分まで${step}分ごと`;
 }
 
 /** 分フィールドの説明。全域は「毎分」、ステップ指定は「N分ごと」 */

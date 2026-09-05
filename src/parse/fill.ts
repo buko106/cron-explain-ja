@@ -170,6 +170,8 @@ function hourCandidates(from: number, to: number): Ambiguity["candidates"] {
 interface Collected {
   times: TimeValue[];
   timeMode: "list" | "range";
+  /** 「9時台」のように、時そのものではなく時の中を指している */
+  hourSpan: boolean;
   lists: Record<ListName, ValueList>;
   intervals: Partial<Record<IntervalUnit, number>>;
   /** 同じ単位の間隔が 2 回書かれた */
@@ -189,6 +191,7 @@ function collect(tokens: Token[]): Collected {
   const state: Collected = {
     times: [],
     timeMode: "list",
+    hourSpan: false,
     lists: { minute: emptyList(), dom: emptyList(), dow: emptyList(), month: emptyList() },
     intervals: {},
     duplicateIntervals: [],
@@ -338,6 +341,10 @@ function collect(tokens: Token[]): Collected {
         flushWord();
         break;
 
+      case "HOUR_SPAN":
+        state.hourSpan = true;
+        break;
+
       default:
         if (token.type === "UNKNOWN") state.unknown += 1;
         break;
@@ -433,14 +440,16 @@ export function fill(tokens: Token[], options: ParseOptions = {}): Slots {
   if (state.freqs.includes("minute")) {
     slots.minute = ANY;
     // 「午前9時台の毎分」のように時が書かれていれば、その時の中での毎分
-    if (rangeTimes) {
-      const range = hourRangeAst();
-      /* c8 ignore next -- rangeTimes が真なら必ず取れる */
-      if (range !== null) slots.hour = range;
-      noteHourRange();
+    const hourRange = rangeTimes ? hourRangeAst() : null;
+    if (hourStep !== undefined) {
+      // 「2時間ごと（毎分）」の時の刻み。毎分だけを見て捨てると刻みが消える
+      slots.hour = stepAst(hourRange, hourStep, HOUR_SPEC);
+    } else if (hourRange !== null) {
+      slots.hour = hourRange;
     } else if (times.length > 0) {
       slots.hour = valuesToAst(times.map((time) => time.hour));
     }
+    if (rangeTimes) noteHourRange();
   } else if (minuteStep !== undefined || hourStep !== undefined) {
     if (minuteStep !== undefined) {
       // 「1分から59分まで2分ごと」の起点。範囲が書かれていなければ全域からの刻み
@@ -463,20 +472,24 @@ export function fill(tokens: Token[], options: ParseOptions = {}): Slots {
     if (rangeTimes) {
       noteHourRange();
     } else if (times.length > 0) {
-      const first = times[0];
-      /* c8 ignore next -- times.length > 0 なら必ず取れる */
-      if (first !== undefined && minuteStep !== undefined) {
-        slots.hour = { kind: "value", value: first.hour };
+      // 「午前9時台と午後6時台の5分ごと」のように時が並ぶことがあるので、全部を採る
+      if (minuteStep !== undefined) {
+        slots.hour = valuesToAst(times.map((time) => time.hour));
       }
-      slots.ambiguities.push({
-        field: "hour",
-        question: "「〜ごと」と時刻の両方が指定されています。どちらの意味ですか？",
-        candidates: [
-          { value: "interval", label: "指定した間隔で繰り返す" },
-          { value: "at", label: "指定した時刻にだけ実行する" },
-        ],
-      });
-      penalize("間隔と時刻の併用", 0.2);
+      // 「9時台の10分ごと」は「その時の中で N 分ごと」で、読み方は 1 つしかない。
+      // 「9時に10分ごと」のように時が一点を指すときだけ、どちらの意味か決まらない
+      const spanned = state.hourSpan && minuteStep !== undefined && hourStep === undefined;
+      if (!spanned) {
+        slots.ambiguities.push({
+          field: "hour",
+          question: "「〜ごと」と時刻の両方が指定されています。どちらの意味ですか？",
+          candidates: [
+            { value: "interval", label: "指定した間隔で繰り返す" },
+            { value: "at", label: "指定した時刻にだけ実行する" },
+          ],
+        });
+        penalize("間隔と時刻の併用", 0.2);
+      }
     }
 
     if (minutes.items.length > 0 && !minutes.consumed) {
@@ -484,17 +497,28 @@ export function fill(tokens: Token[], options: ParseOptions = {}): Slots {
       if (state.lastAssign.minute === "values") slots.minute = listToAst(minutes);
     }
   } else if (times.length > 0) {
+    // 「午前9時台の10分と44分」のように分が別に書かれていれば、そちらが分フィールド。
+    // 「9時」が持つ 0 分は書かれた値ではないので、時だけを取る
+    const writtenMinutes = minutes.items.length > 0;
+    // 「9時30分と45分」のように時刻の側にも分が書かれていれば、分の二重指定
+    if (writtenMinutes && times.some((time) => time.minute !== 0)) {
+      noteConflict(INTERVAL_LABELS.minute);
+    }
+
     if (rangeTimes) {
       const range = hourRangeAst();
       if (range !== null) slots.hour = range;
-      slots.minute = { kind: "value", value: times[0]?.minute ?? 0 };
+      slots.minute = writtenMinutes
+        ? listToAst(minutes)
+        : { kind: "value", value: times[0]?.minute ?? 0 };
       noteHourRange();
     } else {
-      const hours = times.map((time) => time.hour);
+      slots.hour = valuesToAst(times.map((time) => time.hour));
       const timeMinutes = [...new Set(times.map((time) => time.minute))];
-      slots.hour = valuesToAst(hours);
       const only = timeMinutes[0];
-      if (timeMinutes.length === 1 && only !== undefined) {
+      if (writtenMinutes) {
+        slots.minute = listToAst(minutes);
+      } else if (timeMinutes.length === 1 && only !== undefined) {
         slots.minute = { kind: "value", value: only };
       } else {
         slots.minute = valuesToAst(timeMinutes);
@@ -607,7 +631,8 @@ export function fill(tokens: Token[], options: ParseOptions = {}): Slots {
       });
       penalize("「毎週」の曜日が未指定", 0.3);
     }
-    if (freq === "month" && !domSpecified && !dowSpecified) {
+    // 「3か月ごとの毎日」は日が決まっている。「毎日」が無いときだけ日を補う
+    if (freq === "month" && !domSpecified && !dowSpecified && !state.freqs.includes("day")) {
       slots.dom = { kind: "value", value: 1 };
       slots.ambiguities.push({
         field: "dayOfMonth",

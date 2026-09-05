@@ -159,6 +159,68 @@ describe("parse（複数の時刻）", () => {
     expect(result.notes.some((note) => note.includes("組み合わせ"))).toBe(true);
     expect(result.confidence).toBe(0.9);
   });
+
+  // 「9時」が持つ 0 分は書かれた値ではない。別に書かれた分がそのまま分フィールドになる
+  it.each([
+    ["毎日午前9時台の0分と30分", "0,30 9 * * *"],
+    ["毎日午前9時台と午後6時台の0分と30分", "0,30 9,18 * * *"],
+    ["毎日午後2時台の10分と44分", "10,44 14 * * *"],
+    ["毎日午後2時台の0分から5分まで", "0-5 14 * * *"],
+    ["毎日午前9時から午後5時まで毎時0分と30分", "0,30 9-17 * * *"],
+    ["毎日午後2時台と午後6時台の5分ごと", "*/5 14,18 * * *"],
+  ])("%s → %s", (text, expected) => {
+    expect(parse(text).expression).toBe(expected);
+  });
+
+  it("時刻の側にも分が書かれていれば二重指定として扱う", () => {
+    const result = parse("毎日9時30分と45分");
+    expect(result.expression).toBe("45 9 * * *");
+    expect(result.notes.some((note) => note.includes("2 通り"))).toBe(true);
+    expect(result.confidence).toBeLessThan(1);
+  });
+});
+
+describe("parse（「N時台」）", () => {
+  // 「台」はその時の中という意味なので、間隔と並んでも読み方は 1 つしかない
+  it("「N時台」と間隔の併用は曖昧にしない", () => {
+    const result = parse("毎日午前9時台の10分ごと");
+    expect(result.expression).toBe("*/10 9 * * *");
+    expect(result.ambiguities).toEqual([]);
+    expect(result.confidence).toBe(1);
+  });
+
+  it("時が一点を指すときは曖昧のまま", () => {
+    const result = parse("毎日午前9時に10分ごと");
+    expect(result.expression).toBe("*/10 9 * * *");
+    expect(result.ambiguities.some((ambiguity) => ambiguity.field === "hour")).toBe(true);
+    expect(result.confidence).toBeLessThan(1);
+  });
+
+  // 「9時台の2時間ごと」は時の刻みなので、「台」があっても読み方が決まらない
+  it("時間単位の間隔との併用は曖昧のまま", () => {
+    const result = parse("毎日午前9時台の2時間ごと");
+    expect(result.ambiguities.some((ambiguity) => ambiguity.field === "hour")).toBe(true);
+  });
+});
+
+describe("parse（頻度語と間隔の組み合わせ）", () => {
+  // 「毎分」だけを見て時の刻みを捨てると、2 時間ごとが黙って毎時になる
+  it.each([
+    ["2時間ごとの毎分", "* */2 * * *"],
+    ["午前9時から午後5時まで2時間ごとの毎分", "* 9-17/2 * * *"],
+    ["午前9時台の毎分", "* 9 * * *"],
+    // 「毎日」が書かれていれば日は決まっている。1 日に寄せない
+    ["3か月ごとの毎日毎分", "* * * */3 *"],
+    ["毎月毎日午前0時", "0 0 * * *"],
+  ])("%s → %s", (text, expected) => {
+    expect(parse(text).expression).toBe(expected);
+  });
+
+  it("「Nか月ごと」だけなら日を補って曖昧さを返す", () => {
+    const result = parse("3か月ごとの午前0時");
+    expect(result.expression).toBe("0 0 1 */3 *");
+    expect(result.ambiguities.some((ambiguity) => ambiguity.field === "dayOfMonth")).toBe(true);
+  });
 });
 
 describe("parse（週単位の刻み）", () => {
