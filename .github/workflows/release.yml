@@ -23,10 +23,13 @@ jobs:
         with:
           publish: pnpm release
         env:
-          # ビルトインの GITHUB_TOKEN が作った PR / push はワークフローを起動しない
-          # （再帰防止のための GitHub の仕様）。そのままだと Version PR に CI が
-          # 走らず、必須チェックが埋まらないままマージできなくなる。
-          # PAT を渡すとその PAT がアクターになり、CI が起動する。
+          # ビルトインの GITHUB_TOKEN で push すると、Version PR の CI が
+          # 承認待ち（action_required）で止まる。承認前の run は check run を
+          # 作らないため必須チェックが埋まらず、ブランチ保護でマージできない。
+          # write 権限を持つユーザーの PAT で push すればアクターがそのユーザーに
+          # なり、承認ゲートの対象から外れて CI がそのまま走る。
+          # fine-grained トークンは changesets のアクションで push に失敗する
+          # 報告があるため classic PAT（repo スコープ）を使う。
           # RELEASE_TOKEN 未設定でもリリース自体は従来どおり動くようフォールバックする。
           GITHUB_TOKEN: ${{ secrets.RELEASE_TOKEN || secrets.GITHUB_TOKEN }}
           NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
