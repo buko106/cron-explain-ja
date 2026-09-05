@@ -1,5 +1,13 @@
 # cron-explain-ja
 
+## 0.1.1
+
+### Patch Changes
+
+- 2106a11: `exports` に `./package.json` を追加し、`require('cron-explain-ja/package.json')` が
+  `ERR_PACKAGE_PATH_NOT_EXPORTED` にならないようにした。パッケージのメタ情報を読む
+  ツールから参照できる。
+
 ## 0.1.0
 
 ### Minor Changes
