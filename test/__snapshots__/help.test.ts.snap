@@ -1,0 +1,104 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`ヘルプ（スナップショット） > explain 1`] = `
+"cron-ja explain <expr> [options]
+
+cron式を日本語にする
+
+Options:
+      --style <casual|formal>出力スタイル（既定: casual）
+      --hour <12h|24h>      時刻の表記（既定: 12h）
+      --seconds             6 フィールド（秒付き）として解釈する
+      --tz <zone>           explain: 併記するタイムゾーン名 / next: UTC または local
+      --detailed            フィールド別の内訳と次回3回を表示する
+
+Global options:
+      --json                JSON で出力する
+  -q, --quiet               結果のみ出力する
+      --no-color            色を無効化する（NO_COLOR 環境変数でも可）
+  -h, --help                ヘルプを表示する
+  -v, --version             バージョンを表示する
+
+引数を省略し標準入力がパイプの場合、1 行ずつ処理します。"
+`;
+
+exports[`ヘルプ（スナップショット） > next 1`] = `
+"cron-ja next <expr> [options]
+
+次回の実行日時を表示する
+
+Options:
+      --seconds             6 フィールド（秒付き）として解釈する
+      --tz <zone>           explain: 併記するタイムゾーン名 / next: UTC または local
+  -n, --count <n>           表示件数（既定: 3）
+      --from <iso-datetime> 起点の日時（ISO 8601）
+      --format <human|iso|unix>出力形式（既定: human）
+
+Global options:
+      --json                JSON で出力する
+  -q, --quiet               結果のみ出力する
+      --no-color            色を無効化する（NO_COLOR 環境変数でも可）
+  -h, --help                ヘルプを表示する
+  -v, --version             バージョンを表示する
+
+引数を省略し標準入力がパイプの場合、1 行ずつ処理します。"
+`;
+
+exports[`ヘルプ（スナップショット） > parse 1`] = `
+"cron-ja parse <text> [options]
+
+日本語をcron式にする
+
+Options:
+      --strict              曖昧なら失敗する（exit 3）
+      --default-hour <n>    時刻が読み取れないときに使う時（既定: 9）
+      --allow-extensions    L / # / W の使用を許可する
+  -i, --interactive         曖昧な点を対話で確認する
+
+Global options:
+      --json                JSON で出力する
+  -q, --quiet               結果のみ出力する
+      --no-color            色を無効化する（NO_COLOR 環境変数でも可）
+  -h, --help                ヘルプを表示する
+  -v, --version             バージョンを表示する
+
+引数を省略し標準入力がパイプの場合、1 行ずつ処理します。"
+`;
+
+exports[`ヘルプ（スナップショット） > validate 1`] = `
+"cron-ja validate <expr> [options]
+
+cron式を検証する
+
+Options:
+      --seconds             6 フィールド（秒付き）として解釈する
+
+Global options:
+      --json                JSON で出力する
+  -q, --quiet               結果のみ出力する
+      --no-color            色を無効化する（NO_COLOR 環境変数でも可）
+  -h, --help                ヘルプを表示する
+  -v, --version             バージョンを表示する
+
+引数を省略し標準入力がパイプの場合、1 行ずつ処理します。"
+`;
+
+exports[`ヘルプ（スナップショット） > トップレベル 1`] = `
+"cron-ja <command> [args] [options]
+
+Commands:
+  explain             cron式を日本語にする
+  parse               日本語をcron式にする
+  validate            cron式を検証する
+  next                次回の実行日時を表示する
+  (省略)                入力を自動判定して explain または parse
+
+Global options:
+      --json                JSON で出力する
+  -q, --quiet               結果のみ出力する
+      --no-color            色を無効化する（NO_COLOR 環境変数でも可）
+  -h, --help                ヘルプを表示する
+  -v, --version             バージョンを表示する
+
+引数を省略し標準入力がパイプの場合、1 行ずつ処理します。"
+`;
