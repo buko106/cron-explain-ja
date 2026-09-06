@@ -23,6 +23,9 @@ jobs:
       - run: pnpm test:coverage
       - run: pnpm build
       - run: node dist/cli.js --version
+      # デモページ（site/）はライブラリ本体を直接 import しているので、
+      # main へマージしたあとの Pages デプロイではなく PR の段階で壊れを検知する
+      - run: pnpm build:site
 
   # package.json の engines (>=18.3) を裏付けるジョブ。
   # ビルドは Node 22 で行い、成果物だけを古い Node で実行して動作を確認する。
