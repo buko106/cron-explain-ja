@@ -34,12 +34,15 @@
   "scripts": {
     "build": "tsup",
     "dev": "tsup --watch",
+    "dev:site": "vite",
+    "build:site": "vite build",
+    "preview:site": "vite preview",
     "test": "vitest run",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
     "lint": "biome check .",
     "lint:fix": "biome check --write .",
-    "typecheck": "tsc --noEmit && tsc -p tsconfig.test.json",
+    "typecheck": "tsc --noEmit && tsc -p tsconfig.test.json && tsc -p tsconfig.site.json",
     "prepublishOnly": "pnpm run lint && pnpm run typecheck && pnpm run build && pnpm run test",
     "release": "changeset publish"
   },
@@ -68,6 +71,7 @@
     "cron-parser": "^5.10.0",
     "tsup": "^8.5.1",
     "typescript": "^5.9.3",
+    "vite": "^8.2.2",
     "vitest": "^5.0.0"
   }
 }

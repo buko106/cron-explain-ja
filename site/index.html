@@ -1,0 +1,157 @@
+<!doctype html>
+<html lang="ja">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>cron-explain-ja — cron 式と日本語の相互変換</title>
+    <meta
+      name="description"
+      content="cron 式を日本語に、日本語を cron 式に。ブラウザだけで動く cron-explain-ja のデモ。"
+    />
+    <link rel="stylesheet" href="./style.css" />
+  </head>
+  <body>
+    <header class="site-header">
+      <h1>cron-explain-ja</h1>
+      <p class="tagline">cron 式と日本語を相互変換する、ランタイム依存ゼロのライブラリ / CLI。</p>
+      <p class="links">
+        <a href="https://github.com/buko106/cron-explain-ja">GitHub</a>
+        <a href="https://www.npmjs.com/package/cron-explain-ja">npm</a>
+        <span class="version" id="version"></span>
+      </p>
+    </header>
+
+    <main>
+      <section class="tool">
+        <div class="options">
+          <label class="option">
+            <span class="option-name">タイムゾーン</span>
+            <select id="tz">
+              <option value="Asia/Tokyo" selected>Asia/Tokyo（日本）</option>
+              <option value="UTC">UTC（変換しない）</option>
+              <option value="Asia/Seoul">Asia/Seoul（韓国）</option>
+              <option value="Asia/Shanghai">Asia/Shanghai（中国）</option>
+              <option value="Asia/Kolkata">Asia/Kolkata（インド）</option>
+              <option value="Australia/Brisbane">Australia/Brisbane（夏時間なし）</option>
+              <option value="America/New_York">America/New_York（夏時間あり）</option>
+              <option value="Europe/London">Europe/London（夏時間あり）</option>
+              <option value="local">local（この端末の設定）</option>
+            </select>
+          </label>
+          <label class="option">
+            <span class="option-name">文体</span>
+            <select id="style">
+              <option value="casual" selected>casual（午前9時）</option>
+              <option value="formal">formal（午前9時00分）</option>
+            </select>
+          </label>
+          <label class="option">
+            <span class="option-name">時刻表記</span>
+            <select id="hour">
+              <option value="12h" selected>12h（午後3時）</option>
+              <option value="24h">24h（15時）</option>
+            </select>
+          </label>
+        </div>
+
+        <div class="panes">
+          <div class="pane">
+            <label class="pane-label" for="cron">
+              cron 式
+              <span class="pane-zone" id="cron-zone"></span>
+            </label>
+            <textarea
+              id="cron"
+              rows="2"
+              spellcheck="false"
+              autocapitalize="off"
+              autocomplete="off"
+              placeholder="0 0 * * 1-5"
+            ></textarea>
+            <div class="diagnostics" id="cron-diag"></div>
+          </div>
+
+          <div class="pane-arrow" aria-hidden="true">⇄</div>
+
+          <div class="pane">
+            <label class="pane-label" for="ja">
+              日本語
+              <span class="pane-zone" id="ja-zone"></span>
+            </label>
+            <textarea id="ja" rows="2" placeholder="平日の午前9時"></textarea>
+            <div class="diagnostics" id="ja-diag"></div>
+          </div>
+        </div>
+
+        <div class="samples">
+          <span class="samples-label">例：</span>
+          <span class="samples-list" id="samples"></span>
+        </div>
+
+        <div class="detail" id="detail" hidden>
+          <div class="detail-block">
+            <h2>フィールド別の内訳 <span class="zone-tag" id="fields-zone"></span></h2>
+            <table class="fields">
+              <thead>
+                <tr>
+                  <th scope="col">フィールド</th>
+                  <th scope="col">値</th>
+                  <th scope="col">意味</th>
+                </tr>
+              </thead>
+              <tbody id="fields-body"></tbody>
+            </table>
+          </div>
+          <div class="detail-block">
+            <h2>次回の実行 <span class="zone-tag" id="next-zone"></span></h2>
+            <ul class="next" id="next-list"></ul>
+          </div>
+        </div>
+      </section>
+
+      <section class="prose">
+        <h2>タイムゾーンの前提</h2>
+        <p>
+          <strong>cron 式は UTC のサーバーで動くもの、日本語は
+            <code id="prose-zone">Asia/Tokyo</code> の時刻</strong>
+          として扱います。「日本語で書いた予定を UTC のサーバーの crontab に貼る」
+          「UTC の crontab を日本時間で読む」ための変換が入るため、上のふたつの欄では
+          時刻の数字がずれます。
+        </p>
+        <p>
+          変換したくない場合はタイムゾーンに <code>UTC</code> を選んでください。
+          なお cron 式は「フィールドごとに独立した値の集合」しか表せないため、ずらした結果が
+          その形に収まらない式（日をまたぐ時刻とまたがない時刻が混ざる、夏時間があるなど）は
+          近い式を返さずエラーにします。
+        </p>
+      </section>
+
+      <section class="prose">
+        <h2>インストール</h2>
+        <pre><code>npm i cron-explain-ja</code></pre>
+        <pre><code>import { explain, parse } from "cron-explain-ja";
+
+explain("0 0 * * 1-5"); // '平日の午前9時'   UTC 00:00 → JST 09:00
+parse("毎日午後1時").expression; // '0 4 * * *'   JST 13:00 → UTC 04:00</code></pre>
+        <p>
+          詳しい使い方は
+          <a href="https://github.com/buko106/cron-explain-ja#readme">README</a>
+          を参照してください。
+        </p>
+      </section>
+    </main>
+
+    <footer class="site-footer">
+      <p>
+        <a href="https://github.com/buko106/cron-explain-ja">buko106/cron-explain-ja</a>
+        ・
+        <a href="https://github.com/buko106/cron-explain-ja/blob/main/LICENSE">MIT License</a>
+        ・
+        <span class="version" id="footer-version"></span>
+      </p>
+      <p class="note">変換はすべてブラウザ上で行われます。入力がサーバーに送られることはありません。</p>
+    </footer>
+
+    <script type="module" src="./main.ts"></script>
+  </body>
+</html>

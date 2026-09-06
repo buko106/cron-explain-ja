@@ -1,0 +1,12 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "rootDir": ".",
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "types": []
+  },
+  // src/* は site/main.ts の import をたどって検査される。
+  // CLI は Node の型を要るうえサイトからは到達しないので入れない。
+  "include": ["site", "src/globals.d.ts"]
+}
