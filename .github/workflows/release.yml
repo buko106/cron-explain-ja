@@ -1,6 +1,8 @@
 name: Release
 on:
   push: { branches: [main] }
+  # publish せずに OIDC の交換だけを試す oidc-check ジョブ用。
+  workflow_dispatch:
 permissions:
   contents: write
   pull-requests: write
@@ -9,6 +11,7 @@ permissions:
   id-token: write
 jobs:
   release:
+    if: github.event_name == 'push'
     runs-on: ubuntu-latest
     steps:
       # checkout は .git/config に http.extraheader を埋めるため、git CLI での
@@ -37,7 +40,9 @@ jobs:
       # 12 系にはできない。pnpm 9 は自分専用のフラグ（--no-git-checks）もそのまま npm へ
       # 渡すが、npm 12 は未知のフラグを EUNKNOWNCONFIG で撥ねる（11 は警告のみで通す）。
       # 12 に上げるなら、委譲前にフラグを落とす pnpm 10 以上へ先に揃えること。
-      - run: npm install --global "npm@^11.5.1"
+      - run: |
+          npm install --global "npm@^11.5.1"
+          npm --version
       - run: pnpm install --frozen-lockfile
       # publish されるのは dist だけなので、prepublishOnly 任せにせず
       # ここで必ず作っておく（ライフサイクルが走らない経路への保険）。
@@ -57,3 +62,35 @@ jobs:
           # （repo スコープ）を使う。未設定でもリリースが止まらないよう
           # GITHUB_TOKEN にフォールバックする。
           github-token: ${{ secrets.RELEASE_TOKEN || secrets.GITHUB_TOKEN }}
+
+  # trusted publisher の登録を、publish せずに確かめるための手動実行ジョブ。
+  # npm publish は --dry-run でも OIDC の交換まで進むので、その結果だけを見る。
+  # 交換の可否はワークフローのファイル名に紐づくため、確認は release.yml の中から
+  # 行う必要がある（別ファイルに切り出すと job_workflow_ref が変わって落ちる）。
+  oidc-check:
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with: { version: 9 }
+      - uses: actions/setup-node@v4
+        with: { node-version: 22, cache: pnpm }
+      - run: |
+          npm install --global "npm@^11.5.1"
+          npm --version
+      - run: pnpm install --frozen-lockfile
+      # files に dist しか入れていないので、pack できるよう先に作る
+      - run: pnpm build
+      - name: OIDC の交換だけ試す
+        run: |
+          # 公開済みバージョンとの衝突で最後は必ず失敗するが、交換はその手前で終わっている
+          npm publish --dry-run --ignore-scripts --loglevel verbose > oidc.log 2>&1 || true
+          # oidc の行だけ出す。トークンの値はログに出ない
+          grep -i "oidc" oidc.log || echo "(oidc のログ行が無い: npm のバージョンか id-token 権限を確認)"
+          if grep -q "oidc Successfully retrieved and set token" oidc.log; then
+            echo "OK: trusted publisher は登録済み（OIDC トークンを交換できた）"
+          else
+            echo "NG: OIDC トークンを交換できなかった。npmjs.com の trusted publisher 設定を確認すること"
+            exit 1
+          fi
