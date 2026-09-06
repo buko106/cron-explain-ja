@@ -1,6 +1,6 @@
 {
   "name": "cron-explain-ja",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "description": "cron式と日本語を相互変換するライブラリ / CLI",
   "type": "module",
   "main": "./dist/index.cjs",
