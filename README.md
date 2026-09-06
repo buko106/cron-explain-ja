@@ -300,6 +300,31 @@ npm 側は **npmjs.com → cron-explain-ja → Settings → Trusted publisher** 
 | Repository | `cron-explain-ja` |
 | Workflow filename | `release.yml` |
 | Environment | （空欄） |
+| Allowed actions | **`npm publish` にチェック** |
+
+**Allowed actions の `npm publish`** は明示的に有効にしてください。npm は 2026-09-03 に
+既定を変えており、それ以降に作った設定は `npm stage publish` だけが許可された状態で
+できあがります（直接 publish は設定ごとの opt-in）。このリリースはステージングを使わず
+`npm publish` で公開するので、有効にしないと通りません。
+
+見分けにくい失敗をします。**トークンの交換は 201 で成功し、provenance の署名まで通った
+うえで、最後の `PUT` だけが E403 になります**。
+
+```
+npm http fetch POST 201 https://registry.npmjs.org/-/npm/v1/oidc/token/exchange/package/cron-explain-ja
+npm verbose oidc Successfully retrieved and set token
+npm notice publish Signed provenance statement with source and build information from GitHub Actions
+npm http fetch PUT 403 https://registry.npmjs.org/cron-explain-ja - OIDC permission denied for this action
+```
+
+「permission denied for this **action**」の action は、GitHub Actions ではなく
+`npm publish` / `npm stage publish` という**アクションの種別**を指しています。交換が
+成功することは、publish の権限があることを意味しません（1.0.1 はこれで 3 回落ちました）。
+
+なお npm 自身は、trust relationship では `npm stage publish` だけを許可することを推奨して
+います。ステージングは CI が 2FA 無しで版を「保留状態」で置き、人が `npm stage approve`
+（2FA が要る）で公開する仕組みです。安全側ですが公開に手作業が挟まるので、ここでは
+自動リリースを優先して `npm publish` を選んでいます。
 
 ワークフロー側の条件は 3 つです。
 

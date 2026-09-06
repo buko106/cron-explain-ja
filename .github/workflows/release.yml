@@ -1,13 +1,6 @@
 name: Release
 on:
   push: { branches: [main] }
-  # oidc-check ジョブ用。
-  workflow_dispatch:
-    inputs:
-      publish:
-        description: "未公開バージョンを npm へ直接 publish する（verbose ログ付き）"
-        type: boolean
-        default: false
 permissions:
   contents: write
   pull-requests: write
@@ -16,7 +9,6 @@ permissions:
   id-token: write
 jobs:
   release:
-    if: github.event_name == 'push'
     runs-on: ubuntu-latest
     steps:
       # checkout は .git/config に http.extraheader を埋めるため、git CLI での
@@ -67,62 +59,3 @@ jobs:
           # （repo スコープ）を使う。未設定でもリリースが止まらないよう
           # GITHUB_TOKEN にフォールバックする。
           github-token: ${{ secrets.RELEASE_TOKEN || secrets.GITHUB_TOKEN }}
-
-  # trusted publisher の登録を、publish せずに確かめるための手動実行ジョブ。
-  # npm publish は --dry-run でも OIDC の交換まで進むので、その結果だけを見る。
-  # 交換の可否はワークフローのファイル名に紐づくため、確認は release.yml の中から
-  # 行う必要がある（別ファイルに切り出すと job_workflow_ref が変わって落ちる）。
-  oidc-check:
-    if: github.event_name == 'workflow_dispatch'
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: pnpm/action-setup@v4
-        with: { version: 9 }
-      - uses: actions/setup-node@v4
-        with: { node-version: 22, cache: pnpm }
-      - run: |
-          npm install --global "npm@^11.5.1"
-          npm --version
-      - run: pnpm install --frozen-lockfile
-      # files に dist しか入れていないので、pack できるよう先に作る
-      - run: pnpm build
-      - name: OIDC の交換だけ試す
-        run: |
-          # 公開済みバージョンとの衝突で最後は必ず失敗するが、交換はその手前で終わっている
-          npm publish --dry-run --ignore-scripts --loglevel verbose > oidc.log 2>&1 || true
-          # oidc の行だけ出す。トークンの値はログに出ない
-          grep -i "oidc" oidc.log || echo "(oidc のログ行が無い: npm のバージョンか id-token 権限を確認)"
-          if grep -q "oidc Successfully retrieved and set token" oidc.log; then
-            echo "OK: trusted publisher は登録済み（OIDC トークンを交換できた）"
-          else
-            echo "NG: OIDC トークンを交換できなかった。npmjs.com の trusted publisher 設定を確認すること"
-            exit 1
-          fi
-          # 交換が 201 でも publish 権限があるとは限らない（1.0.1 は交換に成功した
-          # うえで PUT が E403 になった）。ここが OK でも publish の可否は別途見ること。
-      # npm の trusted publisher 設定と突き合わせるために、OIDC トークンの識別
-      # クレームを出す。設定側の Repository / Workflow filename / Environment が
-      # これと 1 文字でも違うと publish は拒まれる。トークン本体は出さない。
-      - name: OIDC トークンの識別クレームを出す
-        run: |
-          cat > "$RUNNER_TEMP/claims.mjs" <<'JS'
-          const url = new URL(process.env.ACTIONS_ID_TOKEN_REQUEST_URL);
-          url.searchParams.set("audience", "npm:registry.npmjs.org");
-          const res = await fetch(url, {
-            headers: { Authorization: `Bearer ${process.env.ACTIONS_ID_TOKEN_REQUEST_TOKEN}` },
-          });
-          const { value } = await res.json();
-          const claims = JSON.parse(Buffer.from(value.split(".")[1], "base64url").toString());
-          for (const k of ["repository_owner", "repository", "repository_visibility",
-                           "workflow_ref", "job_workflow_ref", "environment", "ref"]) {
-            console.log(k.padEnd(24), claims[k] ?? "(なし)");
-          }
-          JS
-          node "$RUNNER_TEMP/claims.mjs"
-      # changesets は pnpm publish の出力を pipe で握り潰すので、publish が落ちても
-      # npm 側の理由がワークフローのログに残らない（NPM_CONFIG_LOGLEVEL=verbose を
-      # 渡しても 1 行も出なかった）。ここでは npm を直接叩いて verbose を出す。
-      - name: 未公開バージョンを直接 publish する
-        if: ${{ inputs.publish }}
-        run: npm publish --ignore-scripts --loglevel verbose
