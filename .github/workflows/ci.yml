@@ -23,8 +23,9 @@ jobs:
       - run: pnpm test:coverage
       - run: pnpm build
       - run: node dist/cli.js --version
-      # デモページ（site/）はライブラリ本体を直接 import しているので、
-      # main へマージしたあとの Pages デプロイではなく PR の段階で壊れを検知する
+      # デモページ（site/）が読むライブラリは公開版（unpkg）だが、型はリポジトリの
+      # src から取る（tsconfig.site.json の paths）。公開 API を壊す変更は上の
+      # typecheck で、site 自体のビルドの壊れはここで、PR の段階で分かる
       - run: pnpm build:site
 
   # package.json の engines (>=18.3) を裏付けるジョブ。

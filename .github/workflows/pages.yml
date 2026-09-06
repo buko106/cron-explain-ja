@@ -18,6 +18,23 @@ jobs:
       - uses: actions/setup-node@v4
         with: { node-version: 22, cache: pnpm }
       - run: pnpm install --frozen-lockfile
+      # デモは package.json の version を unpkg から読む。リリース PR をマージすると
+      # このワークフローと Release が同時に走るため、publish より先にデプロイすると
+      # まだ存在しない URL を指したページが出てしまう。取れるまで待ってから作る。
+      - name: wait for the published version
+        run: |
+          version=$(node -p "require('./package.json').version")
+          url="https://unpkg.com/cron-explain-ja@$version/dist/index.js"
+          for attempt in $(seq 1 30); do
+            if curl -fsSL -o /dev/null "$url"; then
+              echo "$url is ready"
+              exit 0
+            fi
+            echo "waiting for $url ($attempt/30)"
+            sleep 20
+          done
+          echo "::error::$url を取得できません。npm への publish が終わっていない可能性があります"
+          exit 1
       - run: pnpm build:site
       - uses: actions/upload-pages-artifact@v3
         with: { path: site-dist }
