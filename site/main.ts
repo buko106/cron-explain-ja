@@ -1,4 +1,3 @@
-import { resolveTimeZone, wallClockWithOffset } from "../src/cron";
 import {
   CronSyntaxError,
   CronTimeZoneError,
@@ -8,7 +7,7 @@ import {
   parse,
   type ValidationError,
   validate,
-} from "../src/index";
+} from "cron-explain-ja";
 
 /**
  * 画面で扱うオプション。すべて必須にして `exactOptionalPropertyTypes` の
@@ -67,16 +66,39 @@ const nextList = element("next-list");
 const nextZone = element("next-zone");
 const proseZone = element("prose-zone");
 
-function pad2(value: number): string {
-  return String(value).padStart(2, "0");
+/** Intl.DateTimeFormat の生成は重いのでゾーンごとに使い回す */
+const formatters = new Map<string, Intl.DateTimeFormat>();
+
+function formatter(timeZone: string): Intl.DateTimeFormat {
+  const cached = formatters.get(timeZone);
+  if (cached !== undefined) return cached;
+  const created = new Intl.DateTimeFormat("en-US", {
+    timeZone,
+    // hour12: false は環境によって 0 時を 24 と読ませるため h23 を使う
+    hourCycle: "h23",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+  formatters.set(timeZone, created);
+  return created;
 }
 
 /** 「2026-09-07 (月) 09:00」。CLI の `formatDateHuman` と同じ形式 */
 function formatInstant(date: Date, tz: string): string {
-  const { wall } = wallClockWithOffset(tz, date);
-  const weekday = DOW_SHORT[wall.dayOfWeek] ?? "";
-  const day = `${wall.year}-${pad2(wall.month)}-${pad2(wall.day)}`;
-  return `${day} (${weekday}) ${pad2(wall.hour)}:${pad2(wall.minute)}`;
+  const found: Record<string, string> = {};
+  for (const part of formatter(tz).formatToParts(date)) {
+    if (part.type !== "literal") found[part.type] = part.value;
+  }
+  const year = found.year ?? "";
+  const month = found.month ?? "";
+  const day = found.day ?? "";
+  // 曜日名はロケールの表記に左右されるので、壁時計の日付から自分で引く
+  const wall = new Date(Date.UTC(Number(year), Number(month) - 1, Number(day)));
+  const weekday = DOW_SHORT[wall.getUTCDay()] ?? "";
+  return `${year}-${month}-${day} (${weekday}) ${found.hour ?? ""}:${found.minute ?? ""}`;
 }
 
 /**
@@ -89,10 +111,14 @@ function caretLine(input: string, position: number | undefined): string | null {
   return `${" ".repeat(position)}${"^".repeat(Math.max(1, length))}`;
 }
 
-/** ゾーン名の解決に失敗しても画面は描く。理由は explain / parse 側がエラーとして出す */
+/**
+ * 画面に出すゾーン名を IANA の正規名に揃える。`'local'` は端末の設定を指す。
+ * 解決に失敗しても画面は描く（理由は explain / parse 側がエラーとして出す）
+ */
 function resolveZoneSafely(tz: string): string {
   try {
-    return resolveTimeZone(tz);
+    const requested = tz === "local" ? new Intl.DateTimeFormat().resolvedOptions().timeZone : tz;
+    return new Intl.DateTimeFormat("en-US", { timeZone: requested }).resolvedOptions().timeZone;
   } catch {
     return tz;
   }

@@ -4,7 +4,11 @@
     "noEmit": true,
     "rootDir": ".",
     "lib": ["ES2022", "DOM", "DOM.Iterable"],
-    "types": []
+    "types": [],
+    // 実行時に読むのは unpkg 上の公開版だが、型はリポジトリの src から取る。
+    // 公開 API を壊す変更はここで型エラーになる。逆に、まだ公開していない API を
+    // 使うと型検査は通って実行時に壊れるので、site からは公開済みの API だけを使う。
+    "paths": { "cron-explain-ja": ["./src/index.ts"] }
   },
   // src/* は site/main.ts の import をたどって検査される。
   // CLI は Node の型を要るうえサイトからは到達しないので入れない。
