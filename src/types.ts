@@ -112,6 +112,7 @@ export type TimeOfDayWord =
   | "午後"
   | "夕方"
   | "夜"
+  | "晩"
   | "深夜"
   | "夜中";
 

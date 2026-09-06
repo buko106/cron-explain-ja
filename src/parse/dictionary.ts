@@ -53,6 +53,7 @@ export const TIME_OF_DAY: Record<TimeOfDayWord, TimeOfDaySpec> = {
   午後: { default: null, range: [12, 23] },
   夕方: { default: 18, range: [16, 19] },
   夜: { default: 21, range: [19, 23] },
+  晩: { default: 21, range: [19, 23] },
   深夜: { default: 2, range: [0, 4] },
   夜中: { default: 2, range: [0, 4] },
 };

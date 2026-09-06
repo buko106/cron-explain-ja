@@ -140,7 +140,7 @@ const RULES: Rule[] = [
     },
   ],
   [
-    /^(早朝|朝|正午|昼|夕方|夜中|深夜|夜|午前|午後)/,
+    /^(早朝|朝|正午|昼|夕方|夜中|深夜|夜|晩|午前|午後)/,
     (m) => {
       const word = m[1] as TimeOfDayWord;
       if (word === "午前" || word === "午後") return { type: "AMPM", value: word };
@@ -153,6 +153,12 @@ const RULES: Rule[] = [
       const unit: FreqUnit | undefined = FREQ[`毎${m[1]}`];
       return unit === undefined ? null : { type: "FREQ", value: unit };
     },
+  ],
+  [
+    // 「毎晩」「毎朝」は「毎日」＋時間帯語。「毎」だけを頻度語として読み、
+    // 続く時間帯語は次の周回で時間帯語の規則に任せる
+    /^毎(?=早朝|朝|正午|昼|夕方|夜中|深夜|夜|晩)/,
+    () => ({ type: "FREQ", value: "day" satisfies FreqUnit }),
   ],
   [/^(から|以降)/, () => ({ type: "RANGE_FROM" })],
   [/^(まで|以前)/, () => ({ type: "RANGE_TO" })],
