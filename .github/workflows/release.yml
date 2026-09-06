@@ -62,6 +62,13 @@ jobs:
           # （repo スコープ）を使う。未設定でもリリースが止まらないよう
           # GITHUB_TOKEN にフォールバックする。
           github-token: ${{ secrets.RELEASE_TOKEN || secrets.GITHUB_TOKEN }}
+        env:
+          # publish が失敗したときに npm 側の理由が分かるようにする。1.0.1 の
+          # publish は E403「OIDC permission denied for this action」で落ちたが、
+          # 既定のログでは交換が成功したのか、どの要求が拒まれたのかが残らなかった。
+          # npm はログを stderr、--json の結果を stdout に出すので changesets の
+          # 出力解析とは干渉しない。トークンの値はログに出ない。
+          NPM_CONFIG_LOGLEVEL: verbose
 
   # trusted publisher の登録を、publish せずに確かめるための手動実行ジョブ。
   # npm publish は --dry-run でも OIDC の交換まで進むので、その結果だけを見る。
