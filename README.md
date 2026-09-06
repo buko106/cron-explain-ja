@@ -105,6 +105,7 @@ parse("こんにちは"); // { expression: null, confidence: 0, ... }
 | `defaultHour` | `9` | 時刻が読み取れないときに使う時 |
 | `timeOfDay` | — | 「朝」などの既定の時を上書きする |
 | `allowExtensions` | `false` | `L` / `#` / `W` の使用で減点しない |
+| `tz` | `'Asia/Tokyo'` | 日本語を読む壁時計のゾーン。IANA 名か `'local'`。出力は常に UTC |
 
 ### `validate(expression, options?): ValidationResult`
 
@@ -245,7 +246,8 @@ pnpm install
 pnpm lint && pnpm typecheck && pnpm test && pnpm build
 ```
 
-詳細な設計は [DESIGN.md](./DESIGN.md) を参照してください。
+詳細な設計は [DESIGN.md](https://github.com/buko106/cron-explain-ja/blob/main/DESIGN.md) を
+参照してください（npm のパッケージには同梱していません）。
 
 ### リリース
 
@@ -291,6 +293,9 @@ classic PAT を使ってください。未設定でも `GITHUB_TOKEN` にフォ�
 
 （0.1.0 はこの設定漏れに気づく前に手元から publish しました。トークンの種類が原因では
 ありません）
+
+**Settings → Actions → General → Workflow permissions** は「Read and write permissions」に
+しておく必要があります。changesets のアクションが Version PR を作れなくなるためです。
 
 **Settings → Actions → General → Actions permissions** は、サードパーティのアクションを
 許可する設定にしておく必要があります。ワークフローが `pnpm/action-setup` と

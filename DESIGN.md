@@ -84,7 +84,9 @@ interface ExplainOptions {
 ```ts
 interface Explanation {
   text: string;
-  expression: string;              // 正規化済み
+  expression: string;              // 入力(UTC)を正規化したもの
+  localExpression: string;         // tz の壁時計に書き換えた式。text と fields はこちらの説明
+  tz: string;                      // 説明に使ったゾーン（IANA の正規名）
   fields: {
     second?: FieldExplanation;
     minute: FieldExplanation;
@@ -136,6 +138,9 @@ interface ParseOptions {
 ```
 
 #### 期待動作
+
+日本語と cron 式の対応そのものを見るため、**この表は `tz: 'UTC'`（書き換えなし）の値**で
+書いている。既定の `Asia/Tokyo` では 9 時間戻した式（「平日の朝9時」→ `0 0 * * 1-5`）になる。
 
 | 入力 | expression | confidence | 備考 |
 |---|---|---|---|
@@ -191,6 +196,9 @@ class CronSyntaxError extends Error {
 }
 class ParseAmbiguityError extends Error {   // strict モード時のみ
   result: ParseResult;
+}
+class CronTimeZoneError extends Error {     // ゾーン名が不正、または書き換え不能（§2.5）
+  timeZone: string;
 }
 ```
 
@@ -865,14 +873,17 @@ const OPTIONS = {
 
 ## 5. マイルストーン
 
+当初は 0.1.0 から 0.5.0 まで機能を刻む計画だったが、初期実装で §1〜§4 をひととおり
+作り切ったため、以降は不具合の修正とタイムゾーン対応が中心になった。実績は次のとおり。
+
 | Ver | 内容 |
 |---|---|
-| 0.1.0 | cron parser, explain（casual/12h）, validate, CLI 骨格（explain/validate） |
-| 0.2.0 | parse 最小構成（TIME + DOW + FREQ）, 往復テスト, CLI parse |
-| 0.3.0 | parse 拡張（INTERVAL, RANGE, DOM, MONTH）, ambiguity, CLI `-i` |
-| 0.4.0 | explain オプション（formal/24h）, next, CLI next / --detailed |
-| 0.5.0 | Quartz 拡張（L, #, W）, seconds, stdin 複数行 |
-| 1.0.0 | API 凍結、ドキュメント整備 |
+| 0.1.0 | DESIGN に沿った初期実装（explain / parse / validate / next、CLI 一式、Quartz 拡張、秒、stdin 複数行、`-i`） |
+| 0.1.1 | `exports` に `./package.json` を追加 |
+| 0.1.2–0.1.3 | リリース手順の記録（`NODE_AUTH_TOKEN`、changesets のアクションは v2 以上） |
+| 0.1.4–0.1.5 | 実在 crontab のレビューと cron-parser との差分テストで見つかった explain / parse の欠陥を修正 |
+| 0.2.0 | cron 式（UTC）と日本語（既定 `Asia/Tokyo`）の間のタイムゾーン変換（破壊的） |
+| 1.0.0 | API 凍結（§6「1.0 の API 凍結で決めたこと」）、ドキュメント整備 |
 
 ---
 
