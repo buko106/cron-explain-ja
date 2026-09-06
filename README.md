@@ -18,20 +18,164 @@ explain("0 4 * * *"); //            '毎日午後1時'  UTC 04:00 → JST 13:00
 
 変換したくない場合は `tz: "UTC"`（CLI では `--tz UTC`）を指定します。
 
+## CLI
+
+インストールせずに npx から実行できます。パッケージ名は `cron-explain-ja`、
+コマンド名は `cron-ja` です。
+
+```bash
+$ npx cron-explain-ja explain "0 4 * * 1-5"
+平日の午後1時
+
+$ npx cron-explain-ja parse "毎日午後1時"
+0 4 * * *
+```
+
+繰り返し使うならインストールして `cron-ja` で呼びます（以下の例はこの形で書きます）。
+
+```bash
+npm i -g cron-explain-ja      # プロジェクトに入れるなら npm i -D cron-explain-ja
+```
+
+### コマンド
+
+```
+cron-ja <command> [args] [options]
+
+Commands:
+  explain   <expr>      cron式を日本語にする
+  parse     <text>      日本語をcron式にする
+  validate  <expr>      cron式を検証する
+  next      <expr>      次回の実行日時を表示する
+  (省略)    <input>     入力を自動判定して explain または parse
+```
+
+引数を省略して標準入力をパイプすると、1 行ずつ処理します。
+
+```bash
+$ cron-ja parse "毎日午後1時"
+0 4 * * *
+
+$ cron-ja explain "0 4 * * 1-5"
+平日の午後1時
+
+$ cron-ja explain "0 4 * * 1-5" --detailed
+平日の午後1時
+
+  UTC 0 4 * * 1-5  →  Asia/Tokyo 0 13 * * 1-5
+
+  分      0       0分
+  時      13      午後1時
+  日      *       毎日
+  月      *       毎月
+  曜日    1-5     平日
+
+次回:
+  2026-09-07 (月) 13:00
+  2026-09-08 (火) 13:00
+  2026-09-09 (水) 13:00
+
+$ cron-ja explain "0 9 * * 1-5" --tz UTC     # 変換しない
+平日の午前9時
+
+$ cron-ja parse "毎日"
+0 0 * * *
+warn: 「毎日」は何時ですか？ → '9' としました（confidence: 0.6）
+      --default-hour で変更できます
+
+$ cron-ja validate "0 25 * * *"
+error: 時 フィールドの値 25 は範囲外です (0-23)
+  0 25 * * *
+    ^^
+
+$ cron-ja explain "0 9-17 * * 1-5"           # 変換できない式
+error: Asia/Tokyo（時差 +9:00）では日付をまたぐ時刻とまたがない時刻が混ざるため、cron 式に書き換えられません
+
+$ crontab -l | grep -v '^#' | cut -d' ' -f1-5 | cron-ja explain --tz UTC
+平日の午前9時
+毎日午前3時
+15分ごと
+```
+
+### オプション
+
+すべてのコマンドで使えます。
+
+| オプション | 説明 |
+| --- | --- |
+| `--json` | JSON で出力する（複数行入力では JSONL） |
+| `-q`, `--quiet` | 結果のみ出力する |
+| `--no-color` | 色を無効化する（`NO_COLOR` 環境変数でも可） |
+| `-h`, `--help` | ヘルプを表示する |
+| `-v`, `--version` | バージョンを表示する |
+
+`explain`:
+
+| オプション | 既定 | 説明 |
+| --- | --- | --- |
+| `--style <casual\|formal>` | `casual` | `formal` は分を 2 桁で必ず表示する |
+| `--hour <12h\|24h>` | `12h` | `24h` は「15時」形式 |
+| `--seconds` | — | 6 フィールド（秒付き）として解釈する |
+| `--tz <zone>` | `Asia/Tokyo` | 日本語側のタイムゾーン。IANA 名か `local` |
+| `--show-tz` | — | 文末にタイムゾーン名を併記する |
+| `--detailed` | — | フィールド別の内訳と次回 3 回を表示する |
+
+`parse`:
+
+| オプション | 既定 | 説明 |
+| --- | --- | --- |
+| `--tz <zone>` | `Asia/Tokyo` | 日本語を読む壁時計のゾーン。出力は常に UTC |
+| `--strict` | — | 曖昧なら失敗する（exit 3） |
+| `--default-hour <n>` | `9` | 時刻が読み取れないときに使う時 |
+| `--allow-extensions` | — | `L` / `#` / `W` の使用を許可する |
+| `-i`, `--interactive` | — | 曖昧な点を対話で確認する |
+
+`validate`:
+
+| オプション | 既定 | 説明 |
+| --- | --- | --- |
+| `--seconds` | — | 6 フィールド（秒付き）として解釈する |
+
+`next`:
+
+| オプション | 既定 | 説明 |
+| --- | --- | --- |
+| `--seconds` | — | 6 フィールド（秒付き）として解釈する |
+| `--tz <zone>` | `Asia/Tokyo` | 表示に使うゾーン。式は常に UTC として数える |
+| `-n`, `--count <n>` | `3` | 表示件数 |
+| `--from <iso-datetime>` | — | 起点の日時（ISO 8601） |
+| `--format <human\|iso\|unix>` | `human` | 出力形式 |
+
+`--tz` は `explain` と `parse` では変換に、`next` では表示に使います。
+`--from` にタイムゾーンを書かなかった場合（`2026-06-14T02:00` など）は `--tz` の壁時計として
+読みます（`Z` やオフセットを書けばそのとおりに解釈します）。
+
+```bash
+$ cron-ja next "0 4 * * *" -n 2              # 表示は Asia/Tokyo
+2026-09-07 (月) 13:00
+2026-09-08 (火) 13:00
+
+$ cron-ja next "0 4 * * *" --tz UTC --format iso -n 1
+2026-09-07T04:00:00Z
+```
+
+結果は stdout、note / warn は stderr に出るため、`$(cron-ja parse "...")` で結果だけを
+受け取れます。`--json`（複数行入力では JSONL）でスクリプトから扱えます。
+
+終了コード: `0` 成功 / `1` 内部エラー / `2` 入力エラー / `3` 曖昧（`--strict` 時）。
+
+## ライブラリ
+
+```bash
+npm i cron-explain-ja
+```
+
 ```ts
 import { explain, parse } from "cron-explain-ja";
 
 explain("0 9 * * 1-5", { tz: "UTC" }); // '平日の午前9時'
 parse("平日の朝9時", { tz: "UTC" }).expression; // '0 9 * * 1-5'
 ```
-
-## インストール
-
-```bash
-npm i cron-explain-ja
-```
-
-## ライブラリ
 
 ### `explain(expression, options?): string`
 
@@ -161,83 +305,6 @@ cron 式は「フィールドごとに独立した値の集合」しか表せな
 crontab に貼られたあと何年も動くので、オフセットが変わらないことは**今年と翌年**にわたって
 確かめます。変換せずに読みたい場合は `tz: "UTC"` を指定してください。
 
-## CLI
-
-```
-cron-ja <command> [args] [options]
-
-Commands:
-  explain   <expr>      cron式を日本語にする
-  parse     <text>      日本語をcron式にする
-  validate  <expr>      cron式を検証する
-  next      <expr>      次回の実行日時を表示する
-  (省略)    <input>     入力を自動判定して explain または parse
-```
-
-```bash
-$ cron-ja parse "毎日午後1時"
-0 4 * * *
-
-$ cron-ja explain "0 4 * * 1-5"
-平日の午後1時
-
-$ cron-ja explain "0 4 * * 1-5" --detailed
-平日の午後1時
-
-  UTC 0 4 * * 1-5  →  Asia/Tokyo 0 13 * * 1-5
-
-  分      0       0分
-  時      13      午後1時
-  日      *       毎日
-  月      *       毎月
-  曜日    1-5     平日
-
-次回:
-  2026-09-07 (月) 13:00
-  2026-09-08 (火) 13:00
-  2026-09-09 (水) 13:00
-
-$ cron-ja explain "0 9 * * 1-5" --tz UTC     # 変換しない
-平日の午前9時
-
-$ cron-ja parse "毎日"
-0 0 * * *
-warn: 「毎日」は何時ですか？ → '9' としました（confidence: 0.6）
-      --default-hour で変更できます
-
-$ cron-ja validate "0 25 * * *"
-error: 時 フィールドの値 25 は範囲外です (0-23)
-  0 25 * * *
-    ^^
-
-$ cron-ja explain "0 9-17 * * 1-5"           # 変換できない式
-error: Asia/Tokyo（時差 +9:00）では日付をまたぐ時刻とまたがない時刻が混ざるため、cron 式に書き換えられません
-
-$ crontab -l | grep -v '^#' | cut -d' ' -f1-5 | cron-ja explain --tz UTC
-平日の午前9時
-毎日午前3時
-15分ごと
-```
-
-結果は stdout、note / warn は stderr に出るため、`$(cron-ja parse "...")` で結果だけを
-受け取れます。`--json`（複数行入力では JSONL）でスクリプトから扱えます。
-
-終了コード: `0` 成功 / `1` 内部エラー / `2` 入力エラー / `3` 曖昧（`--strict` 時）。
-
-`--tz` には IANA のゾーン名か `local` を渡します（既定 `Asia/Tokyo`）。`explain` と `parse`
-では変換に、`next` では表示に使います。`next` の式は常に UTC として数えます。
-`--from` にタイムゾーンを書かなかった場合（`2026-06-14T02:00` など）は `--tz` の壁時計として
-読みます（`Z` やオフセットを書けばそのとおりに解釈します）。
-
-```bash
-$ cron-ja next "0 4 * * *" -n 2              # 表示は Asia/Tokyo
-2026-09-07 (月) 13:00
-2026-09-08 (火) 13:00
-
-$ cron-ja next "0 4 * * *" --tz UTC --format iso -n 1
-2026-09-07T04:00:00Z
-```
-
 ## 開発
 
 開発用ツールチェーン（vitest 5 / changesets 3）は **Node 22.12 以上**を必要とします。
@@ -252,7 +319,7 @@ pnpm lint && pnpm typecheck && pnpm test && pnpm build
 詳細な設計は [DESIGN.md](https://github.com/buko106/cron-explain-ja/blob/main/DESIGN.md) を
 参照してください（npm のパッケージには同梱していません）。
 
-### リリース
+## リリース
 
 変更は [changesets](https://github.com/changesets/changesets) で記録します。
 
@@ -261,116 +328,51 @@ pnpm changeset        # 変更の種類（major/minor/patch）と説明を書く
 ```
 
 main にマージすると Release ワークフローが「Version Packages」PR を作り、その PR を
-マージすると npm に公開されます。
+マージすると npm に公開されます。npm への publish は Trusted Publishing（OIDC）で行うので、
+npm のトークンは保管しません。
 
-npm への publish は Trusted Publishing（OIDC）で行うので、npm のトークンは保管しません。
-必要な GitHub Secrets は次の 1 つだけです。
+### 必要な設定
+
+**GitHub Secrets** は次の 1 つだけです。
 
 | Secret | 用途 |
 |---|---|
 | `RELEASE_TOKEN` | Version PR に CI を走らせるための classic PAT（`repo` スコープ） |
 
-`RELEASE_TOKEN` が要るのは、ビルトインの `GITHUB_TOKEN` で push すると **Version PR の
-CI が承認待ち（`action_required`）で止まる**ためです。承認前の run は check run を作らない
-ので必須チェックが埋まらず、ブランチ保護でマージできません。write 権限を持つユーザーの
-PAT で push すればアクターがそのユーザーになり、承認なしで CI が走ります。
-
-fine-grained トークンは changesets のアクションで push に失敗する報告があるため、
-classic PAT を使ってください。未設定でも `GITHUB_TOKEN` にフォールバックするので、
+fine-grained トークンは使えません。未設定でも `GITHUB_TOKEN` にフォールバックするので
 リリース自体は動きます（Version PR の承認だけ手作業になります）。
 
-`RELEASE_TOKEN` は `actions/checkout` の `token` にも渡しています。changesets の
-アクションは v2 から既定で GitHub API 経由で push するため通常は不要ですが、
-`push-with-git-cli` を有効にすると checkout が `.git/config` に埋めた
-`http.extraheader` が使われ、push だけ bot 名義に戻るためです。
-
-アクションは **v2 以上**を使ってください。v1 は publish の出力から `New tag:` の行を
-探して公開を検知しますが、`@changesets/cli` 3.x はその形式で出力しないため、
-**タグの push と GitHub Release の作成が黙って飛ばされます**（publish 自体は成功するので
-気づきにくい）。v2 は NDJSON のファイル経由で結果を受け取るのでこの問題がありません。
-
-#### npm への publish（Trusted Publishing）
-
-npm 側は **npmjs.com → cron-explain-ja → Settings → Trusted publisher** で GitHub Actions を
+**npm** 側は **npmjs.com → cron-explain-ja → Settings → Trusted publisher** で GitHub Actions を
 登録しておく必要があります。ここで指定したワークフロー以外からは publish できません。
 
 | 項目 | 値 |
-|---|---|
+| --- | --- |
 | Organization or user | `buko106` |
 | Repository | `cron-explain-ja` |
 | Workflow filename | `release.yml` |
 | Environment | （空欄） |
 | Allowed actions | **`npm publish` にチェック** |
 
-**Allowed actions の `npm publish`** は明示的に有効にしてください。npm は 2026-09-03 に
-既定を変えており、それ以降に作った設定は `npm stage publish` だけが許可された状態で
-できあがります（直接 publish は設定ごとの opt-in）。このリリースはステージングを使わず
-`npm publish` で公開するので、有効にしないと通りません。
-
-見分けにくい失敗をします。**トークンの交換は 201 で成功し、provenance の署名まで通った
-うえで、最後の `PUT` だけが E403 になります**。
-
-```
-npm http fetch POST 201 https://registry.npmjs.org/-/npm/v1/oidc/token/exchange/package/cron-explain-ja
-npm verbose oidc Successfully retrieved and set token
-npm notice publish Signed provenance statement with source and build information from GitHub Actions
-npm http fetch PUT 403 https://registry.npmjs.org/cron-explain-ja - OIDC permission denied for this action
-```
-
-「permission denied for this **action**」の action は、GitHub Actions ではなく
-`npm publish` / `npm stage publish` という**アクションの種別**を指しています。交換が
-成功することは、publish の権限があることを意味しません（1.0.1 はこれで 3 回落ちました）。
-
-なお npm 自身は、trust relationship では `npm stage publish` だけを許可することを推奨して
-います。ステージングは CI が 2FA 無しで版を「保留状態」で置き、人が `npm stage approve`
-（2FA が要る）で公開する仕組みです。安全側ですが公開に手作業が挟まるので、ここでは
-自動リリースを優先して `npm publish` を選んでいます。
-
-ワークフロー側の条件は 3 つです。
-
-- `permissions` に `id-token: write` を入れる。無いと npm CLI は OIDC を試さず通常の認証へ
-  落ちます
-- npm CLI を **11 系**（11.5.1 以上）にする。Node 22 同梱の npm は 10 系なので
-  `npm install --global "npm@^11.5.1"` で入れ替えています。`changeset publish` が呼ぶのは
-  `pnpm publish` ですが、pnpm は publish 本体を node と同じディレクトリの npm（無ければ
-  PATH 上の npm）へ委譲するため、pnpm 自体が OIDC 未対応でもこれで通ります。
-  12 系にはできません。pnpm 9 は自分専用のフラグ（`--no-git-checks`）もそのまま npm へ
-  渡しますが、npm 12 は未知のフラグを `EUNKNOWNCONFIG` で撥ねます（11 は警告のみ）。
-  12 に上げるなら、委譲前にフラグを落とす pnpm 10 以上へ先に揃えてください
-- `actions/setup-node` に `registry-url` を **指定しない**。指定すると
-  `//registry.npmjs.org/:_authToken=${NODE_AUTH_TOKEN}` を書いた `.npmrc` が
-  `NPM_CONFIG_USERCONFIG` になり、OIDC が効かなかったときプレースホルダのトークンで
-  publish されて、**認証失敗が 404 で返ってきます**。指定しなければ `ENEEDAUTH` で止まるので
-  原因が分かります
-
 公開リポジトリの公開パッケージなので、npm CLI が provenance も自動で付けます。
-Trusted publisher を登録すれば `NPM_TOKEN` の Secret は不要になるので、消してかまいません。
+Trusted publisher を登録すれば `NPM_TOKEN` の Secret は不要です。
 
-**Settings → Actions → General → Workflow permissions** は「Read and write permissions」に
-しておく必要があります。changesets のアクションが Version PR を作れなくなるためです。
+**GitHub の Settings → Actions → General** は次の 2 つを設定します。
 
-**Settings → Actions → General → Actions permissions** は、サードパーティのアクションを
-許可する設定にしておく必要があります。ワークフローが `pnpm/action-setup` と
-`changesets/action` を使っているためです。オーナー製と GitHub 製だけに絞ると
-`startup_failure` になります。
+| 項目 | 値 |
+| --- | --- |
+| Workflow permissions | Read and write permissions |
+| Actions permissions | サードパーティのアクションを許可（絞るなら `pnpm/action-setup@*, changesets/action@*`） |
 
-「Allow specified actions」で絞る場合は、**カンマ区切りで、バージョンを固定せずに**
-入力してください。
+**ワークフロー側**の前提は次の 4 つです。
 
-```
-pnpm/action-setup@*, changesets/action@*
-```
+- `permissions` に `id-token: write` を入れる
+- npm CLI を **11 系**（11.5.1 以上、12 系は不可）にする
+- `actions/setup-node` に `registry-url` を **指定しない**
+- `changesets/action` は **v2 以上**を使う
 
-改行や空白で区切ると全体が 1 個のパターンとして扱われ、何にも一致しなくなります。
-エラーには登録済みのパターンが表示されるため、一見すると一致しているように見えて
-原因が分かりにくいので注意してください。
-
-`changesets/action@v1` のようにバージョンを固定すると、アクションを v2 に上げた
-時点で弾かれます。`actions/checkout` と `actions/setup-node` は GitHub 製なので
-記載は不要です。
-
-この失敗はジョブが 1 つも作られないため **Re-run ボタンが出ません**。設定を戻したあと、
-main に何か push して新しい run を起こす必要があります。
+これらを外したときにどう失敗したか（診断に時間がかかったものばかりです）は
+[RELEASE-TROUBLESHOOTING.md](https://github.com/buko106/cron-explain-ja/blob/main/RELEASE-TROUBLESHOOTING.md)
+に記録してあります。設定を変える前に読んでください。
 
 ## 互換性
 
