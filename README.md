@@ -243,6 +243,8 @@ parse("毎時9分と39分"); // { expression: '9,39 * * * *', confidence: 1, ...
 parse("毎月10日から20日までの午後3時"); // { expression: '0 6 10-20 * *', confidence: 1, ... }
 parse("3か月ごとの1日の午前9時"); // { expression: '0 0 1 */3 *', confidence: 1, ... }
 parse("休日の朝9時"); // { expression: '0 0 * * 0,6', confidence: 0.8, ... }
+parse("毎晩9時"); // { expression: '0 12 * * *', confidence: 1, ... }
+parse("毎晩6時"); // { expression: '0 9 * * *', confidence: 0.9, ... }（午後6時と読む）
 parse("毎日"); // { expression: '0 0 * * *', confidence: 0.6, ambiguities: [{ field: 'hour', ... }] }
 parse("こんにちは"); // { expression: null, confidence: 0, ... }
 ```
@@ -250,6 +252,11 @@ parse("こんにちは"); // { expression: null, confidence: 0, ... }
 cron の曜日では厳密に表せない語は、近い曜日に寄せたうえで理由を `notes` に書き、
 `confidence` を下げます。「休日」は祝日も指しますが cron には祝日が無いため、週末（`0,6`）
 として解釈します（祝日には実行されません）。
+
+「朝」「夜」などの時間帯の語と一緒に書かれた 12 時までの数字は、その語が指す時間帯に近い方の
+読みを採ります。「夜6時」は午前 6 時ではなく午後 6 時（18 時）です。語の指す時間帯から離れた
+ぶんは `notes` に書いて `confidence` を下げます。「毎晩」「毎朝」は「毎日」＋時間帯の語として
+読みます。
 
 | オプション | 既定 | 説明 |
 | --- | --- | --- |

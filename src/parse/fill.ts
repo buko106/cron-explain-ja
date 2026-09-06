@@ -205,6 +205,36 @@ function stepAst(base: FieldAST | null, step: number, spec: FieldSpec): FieldAST
   return { kind: "step", base, step };
 }
 
+/**
+ * 時から時間帯語の範囲までの距離（時間）。時計は巡回するので 23 時と 0 時は 1 時間差。
+ */
+function gapToRange(hour: number, [low, high]: readonly [number, number]): number {
+  if (hour >= low && hour <= high) return 0;
+  return Math.min((low - hour + 24) % 24, (hour - high + 24) % 24);
+}
+
+/**
+ * 時間帯語と並んだ時を読む。
+ *
+ * 12 時までの数字は 12 時間制の書き方なので、そのままの時と 12 時間ずらした時のうち、
+ * 語の指す時間帯に近い方を採る（「夜6時」→ 18時、「午後3時」→ 15時）。
+ * 13 時以降は 24 時間制としか読めないので、そのまま採る（「朝22時」→ 22時）。
+ *
+ * 範囲に入っていなくても近い方を採るのは、境界のすぐ外側で読みが裏返らないようにするため。
+ * 「夜」は 19 時からだが、「夜6時」を午前 6 時と読むのは行き過ぎで、離れたぶんは
+ * {@link fill} が note と減点で伝える（§2.3.5）。
+ *
+ * 12 時のもう一方の読みは 0 時なので、「午前12時」「夜12時」はどちらも 0 時になる。
+ */
+function readHour(word: TimeOfDayWord, hour: number): { hour: number; gap: number } {
+  const range = TIME_OF_DAY[word].range;
+  const literal = { hour, gap: gapToRange(hour, range) };
+  if (hour > 12) return literal;
+  const shifted = (hour + 12) % 24;
+  const alternative = { hour: shifted, gap: gapToRange(shifted, range) };
+  return alternative.gap < literal.gap ? alternative : literal;
+}
+
 function hourCandidates(from: number, to: number): Ambiguity["candidates"] {
   const candidates: Ambiguity["candidates"] = [];
   for (let hour = from; hour <= to; hour++) {
@@ -229,6 +259,8 @@ interface Collected {
   unknown: number;
   meaningful: number;
   todNotes: string[];
+  /** 時間帯の語と時刻がずれたぶんの減点 */
+  todPenalties: Penalty[];
   /** 曜日で近似した語（「休日」）の説明 */
   approxNotes: string[];
 }
@@ -247,18 +279,30 @@ function collect(tokens: Token[]): Collected {
     unknown: 0,
     meaningful: 0,
     todNotes: [],
+    todPenalties: [],
     approxNotes: [],
   };
 
   let pendingWord: TimeOfDayWord | null = null;
+  /** 範囲の始点に掛かっていた時間帯語。終端に語が無ければこれを引き継ぐ */
+  let spanWord: TimeOfDayWord | null = null;
   let pendingNth: number | null = null;
   /** 直前に読んだ値がどのスロットのものか（「から」の係り先） */
   let last: ListName | "time" | null = null;
 
+  /**
+   * 時刻の並びに 1 つ足す。範囲の始点なら、掛かっていた語を終端が引き継げるよう覚える
+   * （終端に語が無い「夜6時から9時まで」を 18-21 と読むため）。
+   */
+  const addTime = (atom: TimeAtom, word: TimeOfDayWord | null) => {
+    if (!state.times.pendingRange) spanWord = word;
+    pushTime(state.times, atom);
+  };
+
   /** 時刻に結び付かなかった時間帯語を、書かれた位置のまま並びに置く */
   const flushWord = () => {
     if (pendingWord !== null) {
-      pushTime(state.times, { kind: "word", word: pendingWord });
+      addTime({ kind: "word", word: pendingWord }, pendingWord);
       pendingWord = null;
     }
   };
@@ -284,24 +328,30 @@ function collect(tokens: Token[]): Collected {
       case "TIME": {
         const time = token.value as TimeValue;
         let hour = time.hour;
-        if (pendingWord !== null) {
-          const spec = TIME_OF_DAY[pendingWord];
-          const [low, high] = spec.range;
-          if (pendingWord === "午前" && hour === 12) {
-            // 「午前12時」は 0 時
-            hour = 0;
-          } else if (hour < low || hour > high) {
-            if (hour + 12 >= low && hour + 12 <= high) {
-              hour += 12;
-            } else {
-              state.todNotes.push(
-                `「${pendingWord}」は通常 ${low}時から${high}時ですが、${hour}時と解釈しました`,
-              );
-            }
+        // 「夜6時から9時まで」の 9 時は始点と同じ時間帯の中。語が書かれていない
+        // 範囲の終端は、始点に掛かっていた語で読む（→ 18-21）
+        const inherited = state.times.pendingRange ? spanWord : null;
+        const word = pendingWord ?? inherited;
+        if (word !== null) {
+          const reading = readHour(word, hour);
+          hour = reading.hour;
+          // 書かれた語だけを note にする。引き継いだ語のずれを書くと、
+          // 利用者が書いていない語のせいで減点されたように見える
+          if (reading.gap > 0 && pendingWord !== null) {
+            // 語の指す時間帯から外れた読みしか無い。採った理由は言えないので、
+            // どう読んだかを note にして、離れたぶんだけ減点する
+            const [low, high] = TIME_OF_DAY[pendingWord].range;
+            state.todNotes.push(
+              `「${pendingWord}」は通常 ${low}時から${high}時ですが、${hour}時と解釈しました`,
+            );
+            state.todPenalties.push({
+              reason: "時間帯の語と時刻のずれ",
+              amount: Math.min(0.3, reading.gap * 0.1),
+            });
           }
-          pendingWord = null;
         }
-        pushTime(state.times, { kind: "time", hour, minute: time.minute });
+        addTime({ kind: "time", hour, minute: time.minute }, pendingWord);
+        pendingWord = null;
         last = "time";
         break;
       }
@@ -440,6 +490,9 @@ export function fill(tokens: Token[], options: ParseOptions = {}): Slots {
     slots.notes.push(`「${label}」の指定が 2 通りあるため、後に書かれた方を採用しました`);
     penalize("同じフィールドへの二重指定", 0.2);
   };
+
+  // 時間帯の語と時刻のずれ（note は collect が積んでいる）
+  for (const penalty of state.todPenalties) slots.penalties.push(penalty);
 
   for (const unit of state.duplicateIntervals) noteConflict(INTERVAL_LABELS[unit]);
 

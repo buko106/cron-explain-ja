@@ -97,6 +97,18 @@ describe("tokenize", () => {
     expect(tokenize("9時台").map((token) => token.type)).toEqual(["TIME", "HOUR_SPAN"]);
   });
 
+  it("「毎晩」を頻度語と時間帯語に分ける", () => {
+    expect(tokenize("毎晩6時").map((token) => [token.type, token.raw])).toEqual([
+      ["FREQ", "毎"],
+      ["TIME_OF_DAY", "晩"],
+      ["TIME", "6時"],
+    ]);
+    expect(tokenize("毎朝").map((token) => [token.type, token.raw])).toEqual([
+      ["FREQ", "毎"],
+      ["TIME_OF_DAY", "朝"],
+    ]);
+  });
+
   it("「月末」を FREQ より優先する", () => {
     expect(tokenize("毎月末")[0]).toMatchObject({ type: "DOM_SPECIAL", value: "L" });
     expect(tokenize("毎月15日")[0]).toMatchObject({ type: "FREQ", value: "month" });
@@ -144,6 +156,10 @@ describe("辞書", () => {
       expect(DOW_SET_APPROX[word], word).toContain(word);
     }
     expect(DOW_SET_APPROX.休日).toContain("祝日");
+  });
+
+  it("「晩」は「夜」と同じ時間帯", () => {
+    expect(TIME_OF_DAY.晩).toEqual(TIME_OF_DAY.夜);
   });
 
   it("時間帯の既定値は範囲内にある", () => {

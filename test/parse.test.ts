@@ -91,10 +91,11 @@ describe("parse（注記と曖昧さ）", () => {
     }
   });
 
-  it("時間帯の語と合わない時刻に note を付ける", () => {
+  it("時間帯の語と合わない時刻に note を付けて減点する", () => {
     const result = parseUtc("朝22時");
     expect(result.expression).toBe("0 22 * * *");
     expect(result.notes.some((note) => note.includes("朝"))).toBe(true);
+    expect(result.confidence).toBeLessThan(1);
   });
 
   it("「毎年」は月が未指定なら 1 月にして曖昧さを返す", () => {
@@ -246,6 +247,91 @@ describe("parse（時間帯の語の位置）", () => {
 
   it("時刻の直前にあれば従来どおり修飾語として読む", () => {
     expect(parseUtc("朝9時から夕方5時まで").expression).toBe("0 9-17 * * *");
+  });
+});
+
+describe("parse（時間帯の語と時刻）", () => {
+  // 「夜」は 19 時からだが、境界のすぐ外側で午前に裏返るのは行き過ぎ。
+  // 近い読み（18 時）を採り、離れたぶんは confidence で伝える
+  it("範囲の外でも近い方の読みを採り、note と減点で伝える", () => {
+    const result = parseUtc("毎日夜6時");
+    expect(result.expression).toBe("0 18 * * *");
+    expect(result.notes.some((note) => note.includes("18時と解釈"))).toBe(true);
+    expect(result.confidence).toBe(0.9);
+  });
+
+  it.each([
+    ["毎日午後3時", "0 15 * * *"],
+    ["毎日夜9時", "0 21 * * *"],
+    ["毎日夜6時", "0 18 * * *"],
+    ["毎日昼2時", "0 14 * * *"],
+    // 12 時のもう一方の読みは 0 時
+    ["毎日午前12時", "0 0 * * *"],
+    ["毎日夜12時", "0 0 * * *"],
+    ["毎日深夜12時", "0 0 * * *"],
+    // 12 時間制に読み替えても近づかないので、そのまま採る
+    ["毎日朝3時", "0 3 * * *"],
+    ["毎日深夜1時", "0 1 * * *"],
+  ])("%s → %s", (text, expected) => {
+    expect(parseUtc(text).expression).toBe(expected);
+  });
+
+  it("13 時以降は 24 時間制としか読めないのでずらさない", () => {
+    expect(parseUtc("毎日朝22時").expression).toBe("0 22 * * *");
+    expect(parseUtc("毎日午後13時").expression).toBe("0 13 * * *");
+  });
+
+  // 「9時」をそのまま読むと 18-9 と一日をまたぐ範囲になる
+  it("範囲の終端は始点の時間帯の語を引き継ぐ", () => {
+    expect(parseUtc("毎日夜6時から9時まで").expression).toBe("0 18-21 * * *");
+    expect(parseUtc("毎日夜9時から11時まで").expression).toBe("0 21-23 * * *");
+  });
+
+  it("終端に語が書かれていればそちらを使う", () => {
+    expect(parseUtc("毎日朝9時から夕方5時まで").expression).toBe("0 9-17 * * *");
+    // 「翌2時」は「夜」で読んでも 2 時が近い。日をまたぐ範囲のまま残る
+    expect(parseUtc("毎日夜6時から2時まで").expression).toBe("0 18-2 * * *");
+  });
+
+  it("引き継いだ語のずれは note にも減点にもしない", () => {
+    const result = parseUtc("毎日夜9時から11時まで");
+    expect(result.notes.some((note) => note.includes("「夜」"))).toBe(false);
+  });
+
+  it("別の範囲へ語を持ち越さない", () => {
+    expect(parseUtc("毎日夜6時から9時までと朝5時から7時まで").expression).toBe("0 18-21,5-7 * * *");
+  });
+
+  it("ずれが大きいほど減点も大きい", () => {
+    // 18 時は「夜」の 1 時間手前、3 時は「朝」から 3 時間離れている
+    expect(parseUtc("毎日夜6時").confidence).toBe(0.9);
+    expect(parseUtc("毎日朝3時").confidence).toBe(0.7);
+  });
+});
+
+describe("parse（「毎晩」）", () => {
+  it("「毎日」＋「夜」として読む", () => {
+    const result = parseUtc("毎晩9時");
+    expect(result.expression).toBe("0 21 * * *");
+    expect(result.confidence).toBe(1);
+    expect(result.notes).toEqual([]);
+  });
+
+  it("「毎晩6時」は午後6時", () => {
+    const result = parseUtc("毎晩6時");
+    expect(result.expression).toBe("0 18 * * *");
+    expect(result.confidence).toBe(0.9);
+  });
+
+  it("時が書かれていなければ尋ねる", () => {
+    const result = parseUtc("毎晩");
+    expect(result.expression).toBe("0 21 * * *");
+    expect(result.ambiguities.map((ambiguity) => ambiguity.field)).toEqual(["hour"]);
+  });
+
+  it("「毎朝」など他の時間帯語でも同じ形で読む", () => {
+    expect(parseUtc("毎朝7時").expression).toBe("0 7 * * *");
+    expect(parseUtc("毎夜10時").expression).toBe("0 22 * * *");
   });
 });
 
