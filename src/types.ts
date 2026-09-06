@@ -159,6 +159,12 @@ export interface ParseResult {
   confidence: number;
   ambiguities: Ambiguity[];
   notes: string[];
+  /**
+   * トークナイズの結果。**デバッグ用で semver の対象外**。
+   *
+   * 種別の追加・改名はパーサの改良に伴って起きるので、`Token` / `TokenType` の中身は
+   * minor でも変わりうる。動作を分岐させる用途には使わないこと。
+   */
   tokens: Token[];
 }
 

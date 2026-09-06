@@ -315,6 +315,26 @@ pnpm/action-setup@*, changesets/action@*
 この失敗はジョブが 1 つも作られないため **Re-run ボタンが出ません**。設定を戻したあと、
 main に何か push して新しい run を起こす必要があります。
 
+## 互換性
+
+[Semantic Versioning](https://semver.org/lang/ja/) に従います。1.0.0 以降、次のものを
+公開 API として扱います。
+
+- `explain` / `explainDetailed` / `parse` / `validate` / `next` の引数とオプション
+- `Explanation` / `ParseResult` / `ValidationResult` が返すフィールドの型と意味
+- `CronSyntaxError` / `CronTimeZoneError` / `ParseAmbiguityError` の型
+- CLI のサブコマンド、オプション名、終了コード、stdout に出る内容
+
+次のものは対象外です。変わっても major は上げません。
+
+| 対象外 | 理由 |
+| --- | --- |
+| 出力される日本語の言い回し | 不自然な説明を直すのは patch。文面に依存するなら自分でスナップショットを取ること |
+| stderr の note / warn の文面 | 同上 |
+| `ParseResult.tokens`（`Token` / `TokenType`） | デバッグ用。パーサを改良すると種別が増減する |
+| `FieldAST` の `kind` の顔ぶれ | Quartz の `LW` など未対応の構文を後から足せるようにしておく。`switch` を書くなら `default` を用意すること |
+| `confidence` の具体的な値 | 減点の重みは実例を見て調整する。閾値で使うなら余裕を持たせること |
+
 ## ライセンス
 
 [MIT](./LICENSE)

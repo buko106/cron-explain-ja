@@ -1,4 +1,4 @@
-import { resolveTimeZone, wallClockWithOffset } from "../../cron";
+import { resolveTimeZone, SERVER_TIME_ZONE, wallClockWithOffset } from "../../cron";
 import type { CliArgs } from "../args";
 import { CliUsageError } from "../args";
 import type { IO } from "../io";
@@ -86,6 +86,23 @@ export function reportWarn(io: IO, message: string): void {
 
 export function reportNote(io: IO, message: string): void {
   io.err(`${dim(io, "note")}: ${message}`);
+}
+
+/**
+ * 書き換えられない式に当たったときの逃げ道を、1 回だけ案内する関数を作る。
+ *
+ * `0 9-17 * * 1-5` のような実在の crontab 行はそのままでは書き換えられないため、
+ * `--tz UTC` を知らないとエラーだけ見て行き止まりになる。`--tz UTC` なら書き換え自体が
+ * 起きないので、この案内が出る時点でゾーンは UTC 以外に決まっている。`--json` / `--quiet`
+ * のときは黙る。複数行入力で毎行に付けても読み手の役に立たないので、最初の 1 回だけにする。
+ */
+export function timeZoneHint(io: IO, enabled: boolean): () => void {
+  let done = false;
+  return () => {
+    if (done || !enabled) return;
+    done = true;
+    reportNote(io, `--tz ${SERVER_TIME_ZONE} を付けると書き換えを止められます`);
+  };
 }
 
 const DOW_SHORT = ["日", "月", "火", "水", "木", "金", "土"];

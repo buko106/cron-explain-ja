@@ -18,6 +18,7 @@ import {
   reportNote,
   resolveZone,
   stringOption,
+  timeZoneHint,
 } from "./shared";
 
 const FIELD_LABELS: Array<[keyof ReturnType<typeof explainDetailed>["fields"], string]> = [
@@ -88,6 +89,7 @@ export async function explainCommand(args: CliArgs, io: IO): Promise<number> {
 
   const inputs = await collectInputs(args, io);
   const multiple = inputs.length > 1;
+  const hintTimeZone = timeZoneHint(io, !json && !quiet);
   let code = EXIT_OK;
 
   for (const input of inputs) {
@@ -116,6 +118,7 @@ export async function explainCommand(args: CliArgs, io: IO): Promise<number> {
         } else {
           reportError(io, multiple ? `${input}: ${error.message}` : error.message);
         }
+        if (error instanceof CronTimeZoneError) hintTimeZone();
         code = Math.max(code, EXIT_INPUT);
         continue;
       }
