@@ -43,6 +43,12 @@ function splitParts(text: string, offset: number, separator: string): Part[] {
   return parts;
 }
 
+/** 曜日の 7 は日曜（0）と同じ値を指す */
+function normalizeWeekday(value: number, spec: FieldSpec): number {
+  return spec.field === "dayOfWeek" && value === 7 ? 0 : value;
+}
+
+/** 書かれたままの値を読む。曜日の 7 は 0 に畳まない */
 function parseNumber(text: string, spec: FieldSpec, position: number): number {
   const upper = text.toUpperCase();
   const named = spec.names?.[upper];
@@ -61,8 +67,12 @@ function parseNumber(text: string, spec: FieldSpec, position: number): number {
       { field: spec.field, position },
     );
   }
-  // 曜日の 7 は 0 に正規化する
-  return spec.field === "dayOfWeek" && value === 7 ? 0 : value;
+  return value;
+}
+
+/** 値を読んで、曜日の 7 を 0 に正規化する */
+function parseValue(text: string, spec: FieldSpec, position: number): number {
+  return normalizeWeekday(parseNumber(text, spec, position), spec);
 }
 
 function parseAtom(text: string, spec: FieldSpec, position: number): FieldAST {
@@ -99,14 +109,14 @@ function parseAtom(text: string, spec: FieldSpec, position: number): FieldAST {
     }
     const nearest = /^(\d{1,2})W$/i.exec(text);
     if (nearest?.[1] !== undefined) {
-      return { kind: "nearestWeekday", day: parseNumber(nearest[1], spec, position) };
+      return { kind: "nearestWeekday", day: parseValue(nearest[1], spec, position) };
     }
   }
 
   if (spec.field === "dayOfWeek") {
     const hash = text.indexOf("#");
     if (hash >= 0) {
-      const weekday = parseNumber(text.slice(0, hash), spec, position);
+      const weekday = parseValue(text.slice(0, hash), spec, position);
       const nthText = text.slice(hash + 1);
       if (!/^[1-5]$/.test(nthText)) {
         throw new CronSyntaxError(`'#' の後は 1-5 で指定してください`, {
@@ -117,7 +127,7 @@ function parseAtom(text: string, spec: FieldSpec, position: number): FieldAST {
       return { kind: "nth", weekday, nth: Number(nthText) };
     }
     if (/^.+L$/i.test(text)) {
-      const weekday = parseNumber(text.slice(0, -1), spec, position);
+      const weekday = parseValue(text.slice(0, -1), spec, position);
       return { kind: "nth", weekday, nth: -1 };
     }
     if (text.toUpperCase() === "L") {
@@ -132,10 +142,20 @@ function parseAtom(text: string, spec: FieldSpec, position: number): FieldAST {
   if (dash > 0) {
     const from = parseNumber(text.slice(0, dash), spec, position);
     const to = parseNumber(text.slice(dash + 1), spec, position + dash + 1);
-    return { kind: "range", from, to };
+    // `0-7` は「日曜から日曜まで」ではなく全曜日。7 を先に 0 へ畳むと幅が消えてしまうので、
+    // ここだけは正規化前の 7 を見て全域の範囲に読み替える。
+    // `1-7` のように始まりが 0 でない場合は、`1-0` の循環範囲が同じ集合を指すので畳んでよい
+    if (spec.field === "dayOfWeek" && from === spec.min && to === spec.inputMax) {
+      return { kind: "range", from: spec.min, to: spec.max };
+    }
+    return {
+      kind: "range",
+      from: normalizeWeekday(from, spec),
+      to: normalizeWeekday(to, spec),
+    };
   }
 
-  return { kind: "value", value: parseNumber(text, spec, position) };
+  return { kind: "value", value: parseValue(text, spec, position) };
 }
 
 function parseItem(text: string, spec: FieldSpec, position: number): FieldAST {
