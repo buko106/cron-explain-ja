@@ -163,6 +163,7 @@ interface ParseOptions {
 | 1分から59分まで2分ごと | `1-59/2 * * * *` | 1.0 | 起点のある刻み |
 | 毎月1日と3日ごとの午前0時 | `0 0 */3 * *` | 0.8 | 日の二重指定を note（後勝ち） |
 | 2週間ごとの月曜日の午前0時 | `0 0 * * 1` | 0.7 | 週の刻みは表せず note |
+| 休日の10時 | `0 10 * * 0,6` | 0.8 | 祝日は表せず週末に寄せて note |
 | こんにちは | `null` | 0.0 | 時間表現が皆無 |
 
 ### 1.5 `validate(expression, options?) => ValidationResult`
@@ -332,7 +333,11 @@ export const DOW_SET: Record<string, number[]> = {
   平日: [1, 2, 3, 4, 5],
   週末: [0, 6],
   土日: [0, 6],
+  休日: [0, 6],
 };
+
+// 曜日で近似した語と、そのずれの説明（減点は fill が付ける）
+export const DOW_SET_APPROX: Record<string, string> = { 休日: '「休日」は祝日も指しますが…' };
 
 export const TIME_OF_DAY = {
   早朝: { default: 6,    range: [4, 7]   },
@@ -380,7 +385,7 @@ const RULES: Array<[RegExp, (m: RegExpMatchArray) => Token]> = [
   [/^第([1-5])/,                    m => ({ type: 'NTH', n: +m[1] })],
   [/^(\d{1,2})月/,                  m => ({ type: 'MONTH', value: +m[1] })],
   [/^(\d{1,2})日/,                  m => ({ type: 'DOM', value: +m[1] })],
-  [/^(平日|週末|土日)/,             m => ({ type: 'DOW_SET', value: DOW_SET[m[1]] })],
+  [/^(平日|週末|土日|休日)/,        m => ({ type: 'DOW_SET', value: DOW_SET[m[1]] })],
   [/^(日|月|火|水|木|金|土)曜日?/,  m => ({ type: 'DOW', value: DOW[m[1]+'曜'] })],
   [/^(早朝|朝|昼|正午|夕方|夜中|深夜|夜)/, m => ({ type: 'TIME_OF_DAY', word: m[1] })],
   [/^(午前|午後)/,                  m => ({ type: 'AMPM', value: m[1] })],
@@ -441,7 +446,8 @@ interface Slots {
 **日付・曜日**
 
 - `DOW` → dow（複数は list）
-- `DOW_SET` → dow range/list
+- `DOW_SET` → dow range/list。`DOW_SET_APPROX` にある語（「休日」）は曜日と厳密には
+  一致しないので、寄せた旨を note にして -0.2
 - `NTH` + `DOW` → nth、extensions `#`
 - `DOM` → dom
 - `DOM_SPECIAL` L → last、extensions `L`
@@ -901,6 +907,10 @@ const OPTIONS = {
 - `FieldAST` の `nth` は 1-5 に加えて `-1` を「最終曜日」（`5L`）として使う
 - Vixie cron に合わせ、`5-1` のような循環する範囲を許容する
 - `0-6` のように全域を列挙した指定は `*` と同じものとして説明する
+- 「休日」は祝日・振替休日も指すが、cron に祝日は書けない。土日（`0,6`）に寄せ、
+  祝日には実行されない旨を note にして -0.2 する。「週末」「土日」と同じ式でも
+  confidence を下げるのは、寄せたぶんの取りこぼしが利用者から見えないため。
+  曜日そのものは決まっているので ambiguity にはしない（対話で埋める選択肢が無い）
 - 「N週間ごと」は cron に対応する刻みが無い。`*/N` に落とせる週フィールドが無く、
   dow の `*/N` は「N 曜日ごと」であって「N 週ごと」ではないため、`毎週` として解釈し、
   表現できない旨を note にして -0.3 する。黙って毎週にすると 2 週おきの意図が消えるため、

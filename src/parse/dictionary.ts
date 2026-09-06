@@ -21,6 +21,20 @@ export const DOW_SET: Record<string, number[]> = {
   平日: [1, 2, 3, 4, 5],
   週末: [0, 6],
   土日: [0, 6],
+  休日: [0, 6],
+};
+
+/**
+ * 曜日で近似した語と、そのずれの説明。
+ *
+ * 「休日」は祝日・振替休日も指すが、cron は曜日しか持たないので土日に寄せるほかない。
+ * 黙って寄せると祝日ぶんの取りこぼしに気づけないので、note と減点を付ける（§2.3.5）。
+ * 減点の量は `fill` が持つ。
+ */
+export const DOW_SET_APPROX: Record<string, string> = {
+  休日:
+    "「休日」は祝日も指しますが、cron では曜日しか指定できないため、" +
+    "週末（土日）として解釈しました。祝日には実行されません",
 };
 
 export interface TimeOfDaySpec {

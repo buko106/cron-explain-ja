@@ -9,7 +9,7 @@ import type {
   TimeOfDayWord,
   Token,
 } from "../types";
-import { type FreqUnit, TIME_OF_DAY } from "./dictionary";
+import { DOW_SET_APPROX, type FreqUnit, TIME_OF_DAY } from "./dictionary";
 import type { IntervalUnit, IntervalValue, TimeValue } from "./tokenize";
 
 export interface Penalty {
@@ -229,6 +229,8 @@ interface Collected {
   unknown: number;
   meaningful: number;
   todNotes: string[];
+  /** 曜日で近似した語（「休日」）の説明 */
+  approxNotes: string[];
 }
 
 function collect(tokens: Token[]): Collected {
@@ -245,6 +247,7 @@ function collect(tokens: Token[]): Collected {
     unknown: 0,
     meaningful: 0,
     todNotes: [],
+    approxNotes: [],
   };
 
   let pendingWord: TimeOfDayWord | null = null;
@@ -354,10 +357,14 @@ function collect(tokens: Token[]): Collected {
         break;
       }
 
-      case "DOW_SET":
+      case "DOW_SET": {
         flushWord();
+        // 「休日」のように曜日と厳密には一致しない語は、寄せたことを fill で note にする
+        const approx = DOW_SET_APPROX[token.raw];
+        if (approx !== undefined) state.approxNotes.push(approx);
         last = addValues("dow", token.value as number[]);
         break;
+      }
 
       case "DOM":
         flushWord();
@@ -435,6 +442,12 @@ export function fill(tokens: Token[], options: ParseOptions = {}): Slots {
   };
 
   for (const unit of state.duplicateIntervals) noteConflict(INTERVAL_LABELS[unit]);
+
+  // 曜日に寄せた語は、指す日がずれるぶんを減点する（cron に祝日は書けない）
+  for (const note of state.approxNotes) {
+    slots.notes.push(note);
+    penalize("曜日で近似した語", 0.2);
+  }
 
   /** 時間帯の語を時に落とす。幅のある語は曖昧さとして報告する */
   const resolveWord = (word: TimeOfDayWord): number => {
