@@ -73,6 +73,24 @@ describe("parse（注記と曖昧さ）", () => {
     expect(result.notes.some((note) => note.includes("18時台"))).toBe(true);
   });
 
+  it("「休日」は週末に寄せ、note と減点で祝日とのずれを伝える", () => {
+    const result = parseUtc("休日の10時");
+    expect(result.expression).toBe("0 10 * * 0,6");
+    expect(result.notes.some((note) => note.includes("祝日"))).toBe(true);
+    expect(result.confidence).toBe(0.8);
+    // 曜日は決まっているので、対話で埋めるべき曖昧さではない
+    expect(result.ambiguities).toEqual([]);
+  });
+
+  it("「週末」「土日」は同じ式でも減点しない", () => {
+    for (const text of ["週末の10時", "土日の10時"]) {
+      const result = parseUtc(text);
+      expect(result.expression, text).toBe("0 10 * * 0,6");
+      expect(result.confidence, text).toBe(1);
+      expect(result.notes, text).toEqual([]);
+    }
+  });
+
   it("時間帯の語と合わない時刻に note を付ける", () => {
     const result = parseUtc("朝22時");
     expect(result.expression).toBe("0 22 * * *");

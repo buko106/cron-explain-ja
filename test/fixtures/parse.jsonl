@@ -17,6 +17,7 @@
 {"text":"毎日正午","expr":"0 12 * * *","confidence":1}
 {"text":"平日の9:30","expr":"30 9 * * 1-5","confidence":1}
 {"text":"土日の10時","expr":"0 10 * * 0,6","confidence":1}
+{"text":"休日の10時","expr":"0 10 * * 0,6","confidence":0.8}
 {"text":"毎週金曜日の18時30分","expr":"30 18 * * 5","confidence":1}
 {"text":"深夜2時","expr":"0 2 * * *","confidence":0.8}
 {"text":"夜9時","expr":"0 21 * * *","confidence":0.8}

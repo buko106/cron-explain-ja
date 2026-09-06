@@ -119,7 +119,7 @@ const RULES: Rule[] = [
     },
   ],
   [
-    /^(平日|週末|土日)/,
+    /^(平日|週末|土日|休日)/,
     (m) => {
       const values = DOW_SET[m[1] ?? ""];
       return values === undefined ? null : { type: "DOW_SET", value: [...values] };

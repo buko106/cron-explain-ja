@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { formatHour, formatTime } from "../src/explain/time";
-import { DOW, DOW_SET, FREQ, NTH, TIME_OF_DAY } from "../src/parse/dictionary";
+import { DOW, DOW_SET, DOW_SET_APPROX, FREQ, NTH, TIME_OF_DAY } from "../src/parse/dictionary";
 import { kanjiToArabic, normalize, stripTail } from "../src/parse/normalize";
 import { tokenize } from "../src/parse/tokenize";
 
@@ -48,6 +48,10 @@ describe("tokenize", () => {
       ["TIME_OF_DAY", "朝"],
       ["TIME", "9時30分"],
     ]);
+  });
+
+  it("「休日」を曜日集合として読む", () => {
+    expect(tokenize("休日の10時")[0]).toMatchObject({ type: "DOW_SET", value: [0, 6] });
   });
 
   it("「9時半」を 9:30 として読む", () => {
@@ -131,6 +135,15 @@ describe("辞書", () => {
     expect(DOW_SET.平日).toEqual([1, 2, 3, 4, 5]);
     expect(DOW_SET.週末).toEqual([0, 6]);
     expect(DOW_SET.土日).toEqual([0, 6]);
+    expect(DOW_SET.休日).toEqual([0, 6]);
+  });
+
+  it("曜日で近似した語には説明が付く", () => {
+    for (const word of Object.keys(DOW_SET_APPROX)) {
+      expect(DOW_SET[word], word).toBeDefined();
+      expect(DOW_SET_APPROX[word], word).toContain(word);
+    }
+    expect(DOW_SET_APPROX.休日).toContain("祝日");
   });
 
   it("時間帯の既定値は範囲内にある", () => {
