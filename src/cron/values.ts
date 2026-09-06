@@ -1,7 +1,7 @@
 import type { CronAST, FieldAST } from "../types";
 import type { FieldSpec } from "./fields";
 
-/** 拡張構文（L / # / W / ?）を含むか */
+/** 値に展開できない拡張構文（L / # / W）を含むか。`?` は制約なしなので含めない */
 export function hasExtension(ast: FieldAST): boolean {
   switch (ast.kind) {
     case "last":

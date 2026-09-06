@@ -34,3 +34,11 @@ export interface ParseFixture {
   confidence: number;
   ambiguities?: string[];
 }
+
+export interface CronParserFixture {
+  expr: string;
+  /** 6 フィールド（秒付き）として解釈する */
+  seconds?: boolean;
+  /** その式が押さえている点 */
+  note?: string;
+}
