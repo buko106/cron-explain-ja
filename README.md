@@ -1,5 +1,8 @@
 # cron-explain-ja
 
+[![npm](https://img.shields.io/npm/v/cron-explain-ja.svg)](https://www.npmjs.com/package/cron-explain-ja)
+[![CI](https://github.com/buko106/cron-explain-ja/actions/workflows/ci.yml/badge.svg)](https://github.com/buko106/cron-explain-ja/actions/workflows/ci.yml)
+
 cron 式と日本語を相互変換するライブラリ / CLI。ランタイム依存パッケージはありません。
 
 ブラウザから試せる[デモページ](https://www.buko106.tokyo/cron-explain-ja/)があります。
