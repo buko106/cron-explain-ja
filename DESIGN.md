@@ -84,7 +84,9 @@ interface ExplainOptions {
 ```ts
 interface Explanation {
   text: string;
-  expression: string;              // 正規化済み
+  expression: string;              // 入力(UTC)を正規化したもの
+  localExpression: string;         // tz の壁時計に書き換えた式。text と fields はこちらの説明
+  tz: string;                      // 説明に使ったゾーン（IANA の正規名）
   fields: {
     second?: FieldExplanation;
     minute: FieldExplanation;
@@ -136,6 +138,9 @@ interface ParseOptions {
 ```
 
 #### 期待動作
+
+日本語と cron 式の対応そのものを見るため、**この表は `tz: 'UTC'`（書き換えなし）の値**で
+書いている。既定の `Asia/Tokyo` では 9 時間戻した式（「平日の朝9時」→ `0 0 * * 1-5`）になる。
 
 | 入力 | expression | confidence | 備考 |
 |---|---|---|---|
@@ -191,6 +196,9 @@ class CronSyntaxError extends Error {
 }
 class ParseAmbiguityError extends Error {   // strict モード時のみ
   result: ParseResult;
+}
+class CronTimeZoneError extends Error {     // ゾーン名が不正、または書き換え不能（§2.5）
+  timeZone: string;
 }
 ```
 
@@ -865,14 +873,17 @@ const OPTIONS = {
 
 ## 5. マイルストーン
 
+当初は 0.1.0 から 0.5.0 まで機能を刻む計画だったが、初期実装で §1〜§4 をひととおり
+作り切ったため、以降は不具合の修正とタイムゾーン対応が中心になった。実績は次のとおり。
+
 | Ver | 内容 |
 |---|---|
-| 0.1.0 | cron parser, explain（casual/12h）, validate, CLI 骨格（explain/validate） |
-| 0.2.0 | parse 最小構成（TIME + DOW + FREQ）, 往復テスト, CLI parse |
-| 0.3.0 | parse 拡張（INTERVAL, RANGE, DOM, MONTH）, ambiguity, CLI `-i` |
-| 0.4.0 | explain オプション（formal/24h）, next, CLI next / --detailed |
-| 0.5.0 | Quartz 拡張（L, #, W）, seconds, stdin 複数行 |
-| 1.0.0 | API 凍結、ドキュメント整備 |
+| 0.1.0 | DESIGN に沿った初期実装（explain / parse / validate / next、CLI 一式、Quartz 拡張、秒、stdin 複数行、`-i`） |
+| 0.1.1 | `exports` に `./package.json` を追加 |
+| 0.1.2–0.1.3 | リリース手順の記録（`NODE_AUTH_TOKEN`、changesets のアクションは v2 以上） |
+| 0.1.4–0.1.5 | 実在 crontab のレビューと cron-parser との差分テストで見つかった explain / parse の欠陥を修正 |
+| 0.2.0 | cron 式（UTC）と日本語（既定 `Asia/Tokyo`）の間のタイムゾーン変換（破壊的） |
+| 1.0.0 | API 凍結（§6「1.0 の API 凍結で決めたこと」）、ドキュメント整備 |
 
 ---
 
@@ -998,12 +1009,35 @@ const OPTIONS = {
 - `--format=iso` はオフセット付き（`2026-09-07T13:00:00+09:00`）に変える。
   ゾーンを指定したのに `Z` で出るのは分かりにくい。オフセット 0 は `Z` のまま
 
+#### 1.0 の API 凍結で決めたこと
+
+公開 API として保証する範囲は README「互換性」に書いた。以下はその判断の記録。
+
+- **書き換えられない式は throw のまま凍結する。** 実在 crontab のフィクスチャ 167 件のうち、
+  5 フィールドの式で既定 tz（`Asia/Tokyo`）から `CronTimeZoneError` になるのは 6 件。
+  `*/5 9-17 * * 1-5` のような業務時間帯の式が含まれるので無視できる数ではないが、
+  近い式を黙って返す危険（§2.5）と天秤にかけて方針は変えない。
+  代わりに **CLI で逃げ道を案内する**。`--tz UTC` を知らないとエラーだけ見て行き止まりに
+  なるため、書き換えに失敗したときだけ note で 1 回出す。ライブラリのメッセージは
+  フィクスチャが文面ごと押さえているので触らない。
+  オプトインのフォールバック（`onUnrepresentable` のようなもの）は後から非破壊で足せるので、
+  必要になってから入れる
+- **`ParseResult.tokens` は残すが semver の対象外**にする。デバッグには役立つが、
+  ここを凍結するとトークン種別を増やすたびに major が要る。型（`Token` / `TokenType`）ごと
+  「中身は minor でも変わりうる」と `types.ts` と README に明記した
+- **サーバー側のゾーン指定は 1.0 では入れない。** JST のサーバーの crontab を読むのに
+  `--tz UTC` と書かせるのは名前として直感的でないが、`srcTz` のようなオプションは
+  後から足しても非破壊。凍結するのは「`tz` は日本語側のゾーン」という意味だけにする
+- **`next` が `L` / `#` / `W` の式で空配列を返すのは維持する。** throw に変えると
+  `explainDetailed` が内部で `next` を呼んでいる（§1.3 の `next` フィールド）ため、
+  拡張構文を含む式の説明まで失敗する。README に明記して現状のまま凍結する
+- **`FieldAST` の `kind` は minor でも増えうる**ものとして扱う。`LW` を後から足せる余地を
+  残すため。網羅 `switch` を書く利用者には `default` を用意してもらう
+- `explain` 文末の「に実行」オプションは入れない。付ける値がない
+- `next` の探索上限（5 年）は固定のまま。設定できるようにする理由が見当たらない
+
 ### 残っているもの
 
-- `explain` 文末の「に実行」オプションの要否
-- サーバー側のゾーンも指定できるようにするか（いまは UTC 固定。JST のサーバーで動く
-  crontab をそのまま読みたい場合は `--tz UTC` で書き換えを止める必要があり、名前が直感的でない）
-- `next` の探索上限（現在は 5 年、超えると見つかった分だけ返す）を設定可能にするか
 - Quartz の `LW`（月末最後の平日）が未対応。`L` `L-3` `15W` は解釈できるが `LW` は
   `FieldAST` に対応する種別がない（§2.1）。実在の crontab では稀なため見送った
 - 範囲を含む値の並びは書かれた順のまま出す（「1日から3日までと10日から12日まで」→

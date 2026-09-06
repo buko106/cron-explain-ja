@@ -1,5 +1,8 @@
 # cron-explain-ja
 
+[![npm](https://img.shields.io/npm/v/cron-explain-ja.svg)](https://www.npmjs.com/package/cron-explain-ja)
+[![CI](https://github.com/buko106/cron-explain-ja/actions/workflows/ci.yml/badge.svg)](https://github.com/buko106/cron-explain-ja/actions/workflows/ci.yml)
+
 cron 式と日本語を相互変換するライブラリ / CLI。ランタイム依存パッケージはありません。
 
 ブラウザから試せる[デモページ](https://www.buko106.tokyo/cron-explain-ja/)があります。
@@ -18,8 +21,8 @@ explain("0 4 * * *"); //            '毎日午後1時'  UTC 04:00 → JST 13:00
 ```ts
 import { explain, parse } from "cron-explain-ja";
 
-explain("0 9 * * 1-5"); // '平日の午前9時'
-parse("平日の朝9時").expression; // '0 9 * * 1-5'
+explain("0 9 * * 1-5", { tz: "UTC" }); // '平日の午前9時'
+parse("平日の朝9時", { tz: "UTC" }).expression; // '0 9 * * 1-5'
 ```
 
 ## インストール
@@ -34,13 +37,16 @@ npm i cron-explain-ja
 
 cron 式を 1 文の日本語にします。不正な式は `CronSyntaxError` を投げます。
 
+以下の例は既定の `tz`（`Asia/Tokyo`）で動かしたものです。入力の cron 式は UTC なので、
+出力の時刻は 9 時間進んでいます。
+
 ```ts
 explain("*/15 * * * *"); // '15分ごと'
-explain("0 0 1 * *"); // '毎月1日の午前0時'
-explain("0 */2 * * *"); // '2時間ごと（毎時0分）'
-explain("0 9-17 * * 1-5"); // '平日の午前9時から午後5時まで毎時0分'
-explain("0 9 * * *", { hour: "24h" }); // '毎日9時'
-explain("0 9 * * *", { style: "formal" }); // '毎日午前9時00分'
+explain("0 0 1 * *"); // '毎月1日の午前9時'
+explain("0 */3 * * *"); // '3時間ごと（毎時0分）'
+explain("0 0-8 * * 1-5"); // '平日の午前9時から午後5時まで毎時0分'
+explain("0 0 * * *", { hour: "24h" }); // '毎日9時'
+explain("0 0 * * *", { style: "formal" }); // '毎日午前9時00分'
 explain("0 4 * * *"); // '毎日午後1時'（UTC 04:00 を JST で読む）
 explain("0 9 * * *", { tz: "UTC" }); // '毎日午前9時'（変換しない）
 explain("0 4 * * *", { showTimeZone: true }); // '毎日午後1時（Asia/Tokyo）'
@@ -60,7 +66,7 @@ explain("0 4 * * *", { showTimeZone: true }); // '毎日午後1時（Asia/Tokyo�
 ずれます。7 も日曜なので、`0-7` は「日曜から日曜」ではなく全曜日を指します。
 
 ```ts
-explain("0 10 * * 6L"); // '最終土曜日の午前10時'（Quartz の意味では最終金曜日）
+explain("0 1 * * 6L"); // '最終土曜日の午前10時'（Quartz の意味では最終金曜日）
 ```
 
 マクロは `@daily /usr/bin/foo` のようにコマンドが続いていても解釈します（crontab の行を
@@ -72,9 +78,10 @@ explain("0 10 * * 6L"); // '最終土曜日の午前10時'（Quartz の意味で
 フィールド別の内訳、正規化済みの式、注意書き、次回 3 回を返します。
 
 ```ts
-const detail = explainDetailed("0 9 * * 1-5");
+const detail = explainDetailed("0 0 * * 1-5");
 detail.text; // '平日の午前9時'
-detail.expression; // '0 9 * * 1-5'（JAN は数値に、単独の 7 は 0 に正規化される）
+detail.expression; // '0 0 * * 1-5'（入力(UTC)を正規化。JAN は数値に、単独の 7 は 0 になる）
+detail.localExpression; // '0 9 * * 1-5'（tz の壁時計。text と fields はこちらの説明）
 detail.fields.dayOfWeek; // { raw: '1-5', kind: 'range', values: [1,2,3,4,5], text: '平日' }
 detail.next; // [Date, Date, Date]
 ```
@@ -84,12 +91,14 @@ detail.next; // [Date, Date, Date]
 日本語を cron 式にします。解釈が一意でないときは黙って決めず、`confidence`
 （0.0–1.0）と `ambiguities` で返します。
 
+日本語は `tz`（既定 `Asia/Tokyo`）の壁時計として読み、返る `expression` は UTC です。
+
 ```ts
-parse("平日の朝9時"); // { expression: '0 9 * * 1-5', confidence: 1, ... }
+parse("平日の朝9時"); // { expression: '0 0 * * 1-5', confidence: 1, ... }
 parse("毎時9分と39分"); // { expression: '9,39 * * * *', confidence: 1, ... }
-parse("毎月28日から31日までの午前3時"); // { expression: '0 3 28-31 * *', confidence: 1, ... }
-parse("3か月ごとの1日の午前0時"); // { expression: '0 0 1 */3 *', confidence: 1, ... }
-parse("毎日"); // { expression: '0 9 * * *', confidence: 0.6, ambiguities: [{ field: 'hour', ... }] }
+parse("毎月10日から20日までの午後3時"); // { expression: '0 6 10-20 * *', confidence: 1, ... }
+parse("3か月ごとの1日の午前9時"); // { expression: '0 0 1 */3 *', confidence: 1, ... }
+parse("毎日"); // { expression: '0 0 * * *', confidence: 0.6, ambiguities: [{ field: 'hour', ... }] }
 parse("こんにちは"); // { expression: null, confidence: 0, ... }
 ```
 
@@ -99,6 +108,7 @@ parse("こんにちは"); // { expression: null, confidence: 0, ... }
 | `defaultHour` | `9` | 時刻が読み取れないときに使う時 |
 | `timeOfDay` | — | 「朝」などの既定の時を上書きする |
 | `allowExtensions` | `false` | `L` / `#` / `W` の使用で減点しない |
+| `tz` | `'Asia/Tokyo'` | 日本語を読む壁時計のゾーン。IANA 名か `'local'`。出力は常に UTC |
 
 ### `validate(expression, options?): ValidationResult`
 
@@ -218,8 +228,6 @@ $ crontab -l | grep -v '^#' | cut -d' ' -f1-5 | cron-ja explain --tz UTC
 では変換に、`next` では表示に使います。`next` の式は常に UTC として数えます。
 `--from` にタイムゾーンを書かなかった場合（`2026-06-14T02:00` など）は `--tz` の壁時計として
 読みます（`Z` やオフセットを書けばそのとおりに解釈します）。
-`--from` にタイムゾーンを書かなかった場合（`2026-06-14T02:00` など）は `--tz` の壁時計として
-読みます（`Z` やオフセットを書けばそのとおりに解釈します）。
 
 ```bash
 $ cron-ja next "0 4 * * *" -n 2              # 表示は Asia/Tokyo
@@ -241,7 +249,8 @@ pnpm install
 pnpm lint && pnpm typecheck && pnpm test && pnpm build
 ```
 
-詳細な設計は [DESIGN.md](./DESIGN.md) を参照してください。
+詳細な設計は [DESIGN.md](https://github.com/buko106/cron-explain-ja/blob/main/DESIGN.md) を
+参照してください（npm のパッケージには同梱していません）。
 
 ### リリース
 
@@ -288,6 +297,9 @@ classic PAT を使ってください。未設定でも `GITHUB_TOKEN` にフォ�
 （0.1.0 はこの設定漏れに気づく前に手元から publish しました。トークンの種類が原因では
 ありません）
 
+**Settings → Actions → General → Workflow permissions** は「Read and write permissions」に
+しておく必要があります。changesets のアクションが Version PR を作れなくなるためです。
+
 **Settings → Actions → General → Actions permissions** は、サードパーティのアクションを
 許可する設定にしておく必要があります。ワークフローが `pnpm/action-setup` と
 `changesets/action` を使っているためです。オーナー製と GitHub 製だけに絞ると
@@ -310,6 +322,26 @@ pnpm/action-setup@*, changesets/action@*
 
 この失敗はジョブが 1 つも作られないため **Re-run ボタンが出ません**。設定を戻したあと、
 main に何か push して新しい run を起こす必要があります。
+
+## 互換性
+
+[Semantic Versioning](https://semver.org/lang/ja/) に従います。1.0.0 以降、次のものを
+公開 API として扱います。
+
+- `explain` / `explainDetailed` / `parse` / `validate` / `next` の引数とオプション
+- `Explanation` / `ParseResult` / `ValidationResult` が返すフィールドの型と意味
+- `CronSyntaxError` / `CronTimeZoneError` / `ParseAmbiguityError` の型
+- CLI のサブコマンド、オプション名、終了コード、stdout に出る内容
+
+次のものは対象外です。変わっても major は上げません。
+
+| 対象外 | 理由 |
+| --- | --- |
+| 出力される日本語の言い回し | 不自然な説明を直すのは patch。文面に依存するなら自分でスナップショットを取ること |
+| stderr の note / warn の文面 | 同上 |
+| `ParseResult.tokens`（`Token` / `TokenType`） | デバッグ用。パーサを改良すると種別が増減する |
+| `FieldAST` の `kind` の顔ぶれ | Quartz の `LW` など未対応の構文を後から足せるようにしておく。`switch` を書くなら `default` を用意すること |
+| `confidence` の具体的な値 | 減点の重みは実例を見て調整する。閾値で使うなら余裕を持たせること |
 
 ## ライセンス
 

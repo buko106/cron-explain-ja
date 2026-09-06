@@ -55,10 +55,15 @@
     "parser",
     "cli"
   ],
+  "author": "buko106",
   "license": "MIT",
+  "homepage": "https://www.buko106.tokyo/cron-explain-ja/",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/buko106/cron-explain-ja.git"
+  },
+  "bugs": {
+    "url": "https://github.com/buko106/cron-explain-ja/issues"
   },
   "publishConfig": {
     "access": "public"

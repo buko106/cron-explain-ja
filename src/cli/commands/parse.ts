@@ -16,6 +16,7 @@ import {
   reportWarn,
   resolveZone,
   stringOption,
+  timeZoneHint,
 } from "./shared";
 
 const FIELD_INDEX: Record<Ambiguity["field"], number> = {
@@ -83,6 +84,7 @@ export async function parseCommand(args: CliArgs, io: IO): Promise<number> {
 
   const inputs = await collectInputs(args, io);
   const multiple = inputs.length > 1;
+  const hintTimeZone = timeZoneHint(io, !json && !quiet);
   let code = EXIT_OK;
 
   for (const input of inputs) {
@@ -93,6 +95,7 @@ export async function parseCommand(args: CliArgs, io: IO): Promise<number> {
       if (error instanceof CronTimeZoneError) {
         if (json && multiple) io.out(JSON.stringify({ input, error: error.message }));
         else reportError(io, error.message);
+        hintTimeZone();
         code = Math.max(code, EXIT_INPUT);
         continue;
       }
@@ -134,6 +137,7 @@ export async function parseCommand(args: CliArgs, io: IO): Promise<number> {
       } catch (error) {
         if (!(error instanceof CronTimeZoneError)) throw error;
         reportError(io, error.message);
+        hintTimeZone();
         code = Math.max(code, EXIT_INPUT);
         continue;
       }

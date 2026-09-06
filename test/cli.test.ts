@@ -304,6 +304,47 @@ describe("run: next", () => {
   });
 });
 
+describe("run: 書き換えられない式の案内", () => {
+  // 実在の crontab 行をそのまま渡すとここに当たる。--tz UTC を知らないと行き止まりになる
+  it("explain は逃げ道を note で案内する", async () => {
+    const memory = io();
+    expect(await run(["explain", "0 9-17 * * 1-5"], memory)).toBe(2);
+    expect(memory.stderr[0]).toContain("書き換えられません");
+    expect(memory.stderr[1]).toContain("--tz UTC");
+  });
+
+  it("parse でも案内する", async () => {
+    const memory = io();
+    expect(await run(["parse", "毎月28日から31日までの午前3時"], memory)).toBe(2);
+    expect(memory.stderr.some((line) => line.includes("--tz UTC"))).toBe(true);
+  });
+
+  it("構文エラーには案内を付けない", async () => {
+    const memory = io();
+    await run(["explain", "0 25 * * *"], memory);
+    expect(memory.stderr.some((line) => line.includes("--tz UTC"))).toBe(false);
+  });
+
+  it("--quiet と --json では黙る", async () => {
+    const quiet = io();
+    await run(["explain", "0 9-17 * * 1-5", "--quiet"], quiet);
+    expect(quiet.stderr.some((line) => line.includes("--tz UTC"))).toBe(false);
+
+    const json = io();
+    await run(["explain", "0 9-17 * * 1-5", "--json"], json);
+    expect(json.stderr.some((line) => line.includes("--tz UTC"))).toBe(false);
+  });
+
+  it("複数行でも 1 回だけ出す", async () => {
+    const memory = io({
+      stdinIsTTY: false,
+      stdin: ["0 9-17 * * 1-5", "*/5 9-17 * * 1-5", "0 8-18/2 * * 1-5"],
+    });
+    expect(await run(["explain"], memory)).toBe(2);
+    expect(memory.stderr.filter((line) => line.includes("--tz UTC"))).toHaveLength(1);
+  });
+});
+
 describe("run: 共通", () => {
   it("--version", async () => {
     const memory = io();
