@@ -55,7 +55,7 @@ explain("0 4 * * *", { showTimeZone: true }); // '毎日午後1時（Asia/Tokyo�
 
 `L` / `#` / `W` は Quartz 拡張として解釈しますが、**曜日番号は Unix cron の 0 = 日曜**に
 従います。Quartz は 1 = 日曜なので、Quartz 向けに書かれた式をそのまま渡すと曜日が 1 つ
-ずれます。
+ずれます。7 も日曜なので、`0-7` は「日曜から日曜」ではなく全曜日を指します。
 
 ```ts
 explain("0 10 * * 6L"); // '最終土曜日の午前10時'（Quartz の意味では最終金曜日）
@@ -72,7 +72,7 @@ explain("0 10 * * 6L"); // '最終土曜日の午前10時'（Quartz の意味で
 ```ts
 const detail = explainDetailed("0 9 * * 1-5");
 detail.text; // '平日の午前9時'
-detail.expression; // '0 9 * * 1-5'（JAN や 7 は数値・0 に正規化される）
+detail.expression; // '0 9 * * 1-5'（JAN は数値に、単独の 7 は 0 に正規化される）
 detail.fields.dayOfWeek; // { raw: '1-5', kind: 'range', values: [1,2,3,4,5], text: '平日' }
 detail.next; // [Date, Date, Date]
 ```

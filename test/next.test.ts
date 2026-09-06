@@ -1,4 +1,3 @@
-import { CronExpressionParser } from "cron-parser";
 import { describe, expect, it } from "vitest";
 import { next } from "../src/index";
 
@@ -8,6 +7,9 @@ const FROM = new Date("2026-09-05T12:34:56Z");
 function iso(dates: Date[]): string[] {
   return dates.map((date) => date.toISOString());
 }
+
+// cron-parser との突き合わせは test/cron-parser-parity.test.ts が受け持つ。
+// ここは next 自身の仕様（件数・打ち切り・空配列を返す条件）だけを見る
 
 describe("next", () => {
   it("既定で 3 件返す", () => {
@@ -78,31 +80,5 @@ describe("next", () => {
   it("うるう年の 2/29 を跨いで探索する", () => {
     const [first] = next("0 0 29 2 *", { from: new Date("2026-01-01T00:00:00Z"), count: 1 });
     expect(first?.getUTCFullYear()).toBe(2028);
-  });
-});
-
-describe("next（cron-parser との一致）", () => {
-  const expressions = [
-    "0 9 * * 1-5",
-    "*/15 * * * *",
-    "0 0 1 * *",
-    "30 18 * * 5",
-    "0 12 1,15 * *",
-    "0 */2 * * *",
-    "0 9-17 * * 1-5",
-    "0 0 * 1 *",
-    "0 0 1 1 *",
-    "5 4 * * 0",
-    "0 22 * * 1-5",
-    "23 0-20/2 * * *",
-    "0 0,12 1 */2 *",
-    "0 4 8-14 * *",
-    "0 0 15 * 1",
-  ];
-
-  it.each(expressions)("%s", (expression) => {
-    const reference = CronExpressionParser.parse(expression, { currentDate: FROM, tz: "UTC" });
-    const expected = Array.from({ length: 5 }, () => reference.next().toDate());
-    expect(iso(next(expression, { from: FROM, count: 5 }))).toEqual(iso(expected));
   });
 });

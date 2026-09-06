@@ -180,8 +180,10 @@ function parseItem(text: string, spec: FieldSpec, position: number): FieldAST {
   const baseText = text.slice(0, slash);
   const base = parseAtom(baseText === "" ? "*" : baseText, spec, position);
   if (base.kind === "value") {
-    // `5/15` は「5 から max まで 15 刻み」の意味
-    return { kind: "step", base: { kind: "range", from: base.value, to: spec.max }, step };
+    // `5/15` は「5 から上限まで 15 刻み」の意味。`5-<上限>` と書いたのと同じなので、
+    // 範囲として読み直す。こうすると曜日の `7`（日曜）や `0-7`（全曜日）の扱いが
+    // `a-b` と揃う。`base.value` は正規化済みなのでそのままでは 7 が 0 に潰れてしまう
+    return { kind: "step", base: parseAtom(`${baseText}-${spec.inputMax}`, spec, position), step };
   }
   if (base.kind !== "any" && base.kind !== "range") {
     throw new CronSyntaxError(`${spec.label} フィールドの刻みは '*' か範囲にのみ指定できます`, {

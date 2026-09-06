@@ -1,6 +1,7 @@
 import { CronExpressionParser } from "cron-parser";
 import { describe, expect, it } from "vitest";
 import {
+  coversAll,
   expandField,
   formatExpression,
   hasExtension,
@@ -8,7 +9,7 @@ import {
   next,
   parseExpression,
 } from "../src/cron";
-import { explainDetailed } from "../src/index";
+import { explain, explainDetailed } from "../src/index";
 import type { ParserOptions } from "../src/types";
 import {
   CRON_FIELDS,
@@ -123,21 +124,62 @@ function expectSameValues(fixture: CronParserFixture): number {
   return compared;
 }
 
-describe("cron-parser との一致: フィールドの展開値", () => {
-  it.each(corpus.map((fixture) => [label(fixture), fixture] as const))("%s", (_label, fixture) => {
-    // 全フィールドが拡張構文ということはないので、必ず 1 つ以上は比べている
-    expect(expectSameValues(fixture)).toBeGreaterThan(0);
-  });
+/** 展開値を比べる式。corpus と既存フィクスチャで重なる分は 1 度だけ見る */
+const comparableValues = dedupe([...corpus, ...fixtureExpressions]).filter(
+  (fixture) => !UNREADABLE_BY_REFERENCE.has(fixture.expr),
+);
 
-  it.each(fixtureExpressions.filter((fixture) => !UNREADABLE_BY_REFERENCE.has(fixture.expr)))(
-    "$expr",
-    (fixture) => {
+describe("cron-parser との一致: フィールドの展開値", () => {
+  it.each(comparableValues.map((fixture) => [label(fixture), fixture] as const))(
+    "%s",
+    (_label, fixture) => {
+      // 全フィールドが拡張構文ということはないので、必ず 1 つ以上は比べている
       expect(expectSameValues(fixture)).toBeGreaterThan(0);
     },
   );
 
+  // 式ごとの `toBeGreaterThan(0)` は、拡張構文の判定が壊れて大半のフィールドが
+  // 飛ばされても素通りしてしまう。飛ばした分を式とフィールドの組で固定して番人にする
+  it("拡張構文で飛ばすフィールドは、L / # / W を含むものだけ", () => {
+    const skipped: string[] = [];
+    let compared = 0;
+    for (const fixture of comparableValues) {
+      const own = ownValues(fixture.expr, optionsOf(fixture));
+      for (const field of CRON_FIELDS) {
+        if (own.extended.has(field)) skipped.push(`${fixture.expr} の ${field}`);
+        else compared += 1;
+      }
+    }
+    expect(skipped.sort()).toEqual([
+      "* * 1,4-10,L * * の dayOfMonth",
+      "0 0 0 * * 1#3 の dayOfWeek",
+      "0 0 0 * * 1,5L の dayOfWeek",
+      "0 0 0 * * 1L の dayOfWeek",
+      "0 0 0 * * 1L,5L の dayOfWeek",
+      "0 0 0 16,18 * 3#3 の dayOfWeek",
+      "0 0 0 8 * 5#3 の dayOfWeek",
+      "0 0 0 ? MAY 0#2 の dayOfWeek",
+      "0 0 1,3,6-8,L 2 * の dayOfMonth",
+      "0 0 12 ? MAY 0#2 の dayOfWeek",
+      "0 0 L * * の dayOfMonth",
+      "0 0 L 10 * の dayOfMonth",
+      "0 0 L 2 * の dayOfMonth",
+      "0 10 * * 1#2 の dayOfWeek",
+      "0 10 * * 5#1 の dayOfWeek",
+      "0 10 * * 5L の dayOfWeek",
+      "0 15 10 ? * 6#3 の dayOfWeek",
+      "0 15 10 ? * 6L の dayOfWeek",
+      "0 15 10 L * ? の dayOfMonth",
+      "15 10 ? * 6L の dayOfWeek",
+      "30 23 L * * の dayOfMonth",
+    ]);
+    // フィクスチャを増やしたらこの数も動く。黙って比較が減っていないことの番人
+    expect(compared).toBe(6 * comparableValues.length - skipped.length);
+    expect(compared).toBeGreaterThan(1600);
+  });
+
   it("cron-parser が読めない式は、うちにしかない書き方に限られる", () => {
-    const unreadable = fixtureExpressions
+    const unreadable = dedupe([...corpus, ...fixtureExpressions])
       .filter((fixture) => {
         try {
           CronExpressionParser.parse(fixture.expr);
@@ -151,19 +193,26 @@ describe("cron-parser との一致: フィールドの展開値", () => {
   });
 
   it("公開 API（explainDetailed）が返す値も一致する", () => {
-    for (const fixture of corpus) {
+    let compared = 0;
+    for (const fixture of comparableValues) {
       const { fields } = explainDetailed(fixture.expr, { ...optionsOf(fixture), tz: "UTC" });
+      const own = ownValues(fixture.expr, optionsOf(fixture));
       const reference = referenceValues(fixture.expr);
       const months = fields.month.values;
       for (const field of CRON_FIELDS) {
+        // 拡張構文のフィールドは値を持たない。秒は 5 フィールド式には無い
+        if (own.extended.has(field)) continue;
         const explanation = field === "second" ? fields.second : fields[field];
-        // 秒を持たない式の秒フィールドと、拡張構文のフィールドは値を持たない
-        if (explanation === undefined || explanation.values.length === 0) continue;
+        if (explanation === undefined) continue;
         const values =
           field === "dayOfMonth" ? clampDayOfMonth(explanation.values, months) : explanation.values;
         expect(values, `${fixture.expr} の ${field}`).toEqual(reference[field]);
+        compared += 1;
       }
     }
+    // 秒を持たない式の秒フィールドだけが飛ぶ。それ以外を黙って飛ばしていないことの番人
+    const withoutSeconds = comparableValues.filter((fixture) => fixture.seconds !== true).length;
+    expect(compared).toBe(6 * comparableValues.length - 21 - withoutSeconds);
   });
 });
 
@@ -200,8 +249,9 @@ describe("cron-parser との一致: 次回実行日時", () => {
   );
 
   it("式の総数が減っていない", () => {
-    // 比較から外す条件を広げすぎると、この describe が空回りしていても気づけない
-    expect(comparable.length).toBeGreaterThan(180);
+    // 比較から外す条件を広げすぎると、この describe が空回りしていても気づけない。
+    // フィクスチャを増やしたらこの数も動く
+    expect(comparable.length).toBe(266);
   });
 });
 
@@ -253,7 +303,8 @@ describe("cron-parser との一致: 正規化した表記", () => {
       }
       compared += 1;
     }
-    expect(compared).toBeGreaterThan(180);
+    // 循環範囲を含む式だけが外れる。フィクスチャを増やしたらこの数も動く
+    expect(compared).toBe(266);
   });
 
   it("書き戻せない式は、cron-parser 側の既知の制限に限られる", () => {
@@ -286,11 +337,19 @@ describe("cron-parser との一致: ランダム生成による差分検査", ()
   const between = (min: number, max: number): number =>
     min + Math.floor(random() * (max - min + 1));
 
-  function randomAtom(min: number, max: number): string {
-    const form = pick(["any", "value", "range", "step", "rangeStep"]);
+  // 1 つの項を作る。`whole` が false のときは全域を覆う形（`*` と、それに刻みを付けた形）を
+  // 作らない。cron-parser は同じ値が 2 度現れる式を拒否するので、リストの中に全域を置くと
+  // ほぼ必ず弾かれて検査対象が痩せる。単独の項のときだけ全域を許す
+  function randomAtom(min: number, max: number, whole: boolean): string {
+    const forms = whole
+      ? ["any", "value", "range", "step", "rangeStep", "valueStep"]
+      : ["value", "range", "rangeStep", "valueStep"];
+    const form = pick(forms);
     if (form === "any") return "*";
     if (form === "value") return String(between(min, max));
     if (form === "step") return `*/${between(1, max - min + 1)}`;
+    // `5/15` のように値に刻みを付けた形。範囲や `*` とは別の経路を通る
+    if (form === "valueStep") return `${between(min, max)}/${between(1, max - min + 1)}`;
     const from = between(min, max);
     const to = between(from, max);
     if (form === "range") return `${from}-${to}`;
@@ -298,13 +357,15 @@ describe("cron-parser との一致: ランダム生成による差分検査", ()
   }
 
   function randomField(min: number, max: number): string {
-    return Array.from({ length: pick([1, 1, 1, 2, 3]) }, () => randomAtom(min, max)).join(",");
+    const length = pick([1, 1, 1, 2, 3]);
+    return Array.from({ length }, () => randomAtom(min, max, length === 1)).join(",");
   }
 
   const FROM = new Date("2026-09-05T12:34:56Z");
 
   it("生成した式の展開値と次回実行日時が cron-parser と一致する", () => {
     let checked = 0;
+    let exhausted = 0;
     for (let attempt = 0; attempt < 6000; attempt += 1) {
       // 曜日は 0-6 だけを使う。7 と循環範囲は cron-parser と読み方が違うので別に押さえている
       const expression = [
@@ -317,7 +378,8 @@ describe("cron-parser との一致: ランダム生成による差分検査", ()
 
       const own = ownValues(expression);
       try {
-        // 終わりが始まりより小さい範囲など、cron-parser が受け付けない形は飛ばす
+        // cron-parser は同じ値が 2 度現れる式（`1-5,3` など）を拒否する。
+        // うちは重複を畳むので受け付けるが、比べる相手がいないので飛ばす
         CronExpressionParser.parse(expression);
       } catch {
         continue;
@@ -337,17 +399,70 @@ describe("cron-parser との一致: ランダム生成による差分検査", ()
         try {
           expected = Array.from({ length: 3 }, () => iterator.next().toDate().toISOString());
         } catch {
-          // 2 月 31 日のように、cron-parser が候補を出せない式
-          expected = [];
+          // 「2,4 月の 31 日」のように候補が尽きる式では cron-parser が探索を打ち切る。
+          // 月が 1 つに決まる式は解析時に弾かれるので、ここに来るのは月が複数の場合だけ
+          exhausted += 1;
+          expect(next(expression, { from: FROM, count: 3 }), expression).toEqual([]);
+          checked += 1;
+          continue;
         }
         const actual = next(expression, { from: FROM, count: 3 }).map((date) => date.toISOString());
-        if (expected.length === 3) expect(actual, expression).toEqual(expected);
-        else expect(actual, expression).toEqual([]);
+        expect(actual, expression).toEqual(expected);
       }
       checked += 1;
     }
-    // 生成条件を変えて式がほとんど通らなくなっていないか見る
-    expect(checked).toBeGreaterThan(1000);
+    // 生成条件を変えて式がほとんど通らなくなっていないか見る（実測 2733 / 6000）
+    expect(checked).toBeGreaterThan(2500);
+    // いまの生成条件では候補が尽きる式は出てこない。出るようになったら上の分岐を見直す
+    expect(exhausted).toBe(0);
+  });
+});
+
+describe("explain の日付の限定が next と食い違わない", () => {
+  // 日と曜日の OR 条件を explain だけが取り違えていた不具合の再発防止。
+  // 値と次回実行日時が cron-parser と一致していても、日本語が別の日を指していれば意味がない。
+  // `0 0 15 * 0-7` は毎日動くが、かつては「毎月15日の午前0時」と説明していた
+  const WINDOW_DAYS = 62;
+  const START = new Date("2026-09-01T00:00:00Z");
+  const MILLIS_PER_DAY = 86_400_000;
+
+  /** 起点から WINDOW_DAYS 日のうち、実際に動く日の数 */
+  function firingDays(fixture: CronParserFixture): number {
+    let days = 0;
+    for (let index = 0; index < WINDOW_DAYS; index += 1) {
+      const dayStart = START.getTime() + index * MILLIS_PER_DAY;
+      // next は起点そのものを含めないので、その日の 00:00:00 の 1 秒前から探す
+      const [first] = next(fixture.expr, {
+        ...optionsOf(fixture),
+        from: new Date(dayStart - 1000),
+        count: 1,
+      });
+      if (first !== undefined && first.getTime() < dayStart + MILLIS_PER_DAY) days += 1;
+    }
+    return days;
+  }
+
+  /** 日本語が日付や曜日を限定しているか */
+  const LIMITS_DATE = /毎月\d|毎年|曜日|平日|週末|月末|最も近い/;
+
+  // 月で絞られた式は、窓の外に実行日があっても「毎日」とは言わないので対象外
+  const targets = dedupe([...corpus, ...fixtureExpressions]).filter((fixture) => {
+    if (UNREADABLE_BY_REFERENCE.has(fixture.expr)) return false;
+    const { ast, extensions } = parseExpression(fixture.expr, optionsOf(fixture));
+    if (extensions.some((extension) => extension !== "?")) return false;
+    return coversAll(ast.month, MONTH_SPEC);
+  });
+
+  it("毎日動く式だけが、日付を限定しない日本語になる", () => {
+    for (const fixture of targets) {
+      const text = explain(fixture.expr, { ...optionsOf(fixture), tz: "UTC" });
+      const everyDay = firingDays(fixture) === WINDOW_DAYS;
+      expect(
+        LIMITS_DATE.test(text),
+        `${fixture.expr} → ${text}（${WINDOW_DAYS} 日連続で動く: ${everyDay}）`,
+      ).toBe(!everyDay);
+    }
+    expect(targets.length).toBe(229);
   });
 });
 

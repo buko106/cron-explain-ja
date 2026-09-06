@@ -2,7 +2,7 @@ import { CronTimeZoneError } from "../errors";
 import type { CronAST, FieldAST, ParserOptions } from "../types";
 import { DOM_SPEC, DOW_SPEC, type FieldSpec, HOUR_SPEC, MINUTE_SPEC, MONTH_SPEC } from "./fields";
 import { parseExpression } from "./parser";
-import { coversAll, expandField, formatExpression, hasExtension, toRanges } from "./values";
+import { coversAll, expandField, formatExpression, hasExtension, isAny, toRanges } from "./values";
 import { fixedOffsetMinutes, SERVER_TIME_ZONE } from "./zone";
 
 /**
@@ -121,8 +121,11 @@ export function shiftAst(ast: CronAST, timeZone: string, direction: ShiftDirecti
     );
   }
 
-  const domRestricted = !coversAll(ast.dayOfMonth, DOM_SPEC);
-  const dowRestricted = !coversAll(ast.dayOfWeek, DOW_SPEC);
+  // 日と曜日が「指定されているか」は書き方で決まる（`*` / `?` だけが指定なし）。
+  // `0-6` のように全域を覆っていても、標準の cron では OR 条件の一方として数える。
+  // ここで coversAll を使うと、毎日動く式を「15 日だけ」と見て日をずらしてしまう
+  const domRestricted = !isAny(ast.dayOfMonth);
+  const dowRestricted = !isAny(ast.dayOfWeek);
   const monthRestricted = !coversAll(ast.month, MONTH_SPEC);
   const everyDay = !domRestricted && !dowRestricted && !monthRestricted;
 

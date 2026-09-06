@@ -222,9 +222,8 @@ type FieldAST =
   | { kind: 'noSpecific' };                           // ?
 ```
 
-- 許容範囲: minute 0-59, hour 0-23, dom 1-31, month 1-12, dow 0-7（7 は 0 に正規化）
-  - ただし範囲の `0-7` は「日曜から日曜」ではなく全曜日。7 を先に 0 と見ると幅が消えるので、
-    ここだけ正規化前の 7 を見て `0-6` に読み替える（`1-7` は `1-0` の循環範囲が同じ集合を指す）
+- 許容範囲: minute 0-59, hour 0-23, dom 1-31, month 1-12, dow 0-7（7 は 0 に正規化。ただし
+  範囲の `0-7` と刻みの起点 `7/n` は上限としての 7 を見る）
 - 月名 `JAN`-`DEC`、曜日名 `SUN`-`SAT` を数値に変換
 - マクロ `@daily` `@hourly` `@weekly` `@monthly` `@yearly` `@annually` を展開
 - 位置情報を保持し、エラー時に `position` を返す
@@ -589,39 +588,35 @@ expect(signature(parse(explain(expr)).expression)).toBe(signature(expr));
 
 ### 3.5 cron-parser をベンチマークにした比較
 
-`cron-parser`（MIT / harrisiirak, v5）を devDependency として入れ、同じ式を同じ意味で
-読めているかを突き合わせる。相手は展開済みの値の配列（`CronField#values`）を、うちは
-構文木を持つので、比べるのは「その式が動く値の集合」と「次回実行日時の並び」。
+`cron-parser`（MIT / harrisiirak, v5.10.0）を devDependency として入れ、同じ式を同じ意味で
+読めているかを突き合わせる。相手は展開済みの値の配列（`CronField#values`）を、うちは構文木を
+持つので、比べるのは「その式が動く値の集合」と「次回実行日時の並び」。
 
-`test/cron-parser-parity.test.ts`
+- `test/cron-parser-parity.test.ts`: 一致を見る。展開値・公開 API が返す値・次回実行日時
+  （5 起点 × 5 件）・正規化表記の相互解釈を、フィクスチャとランダム生成の両方で比較する
+- `test/cron-parser-cases.test.ts`: 意図的に違う振る舞いを固定する。相手のテストにあって
+  うちのコーパスに無かった入力もここに取り込む
 
-| 見るもの | やり方 |
-|---|---|
-| フィールドの展開値 | `expandField` と `CronField#values` を全フィールドで比較 |
-| 公開 API の値 | `explainDetailed(...).fields.*.values` でも同じ比較 |
-| 次回実行日時 | 5 つの起点（月末・年末・うるう年をまたぐ）× 5 件 |
-| 正規化した表記 | 相手の `stringify()` を読み直す / うちの `formatExpression` を相手に読ませる |
-| ランダム生成 | 決定的な乱数で式を作り、上の 2 つを差分検査 |
-
-コーパスは `test/fixtures/cron-parser.jsonl`（cron-parser のテストから採った 113 式）と、
-既存の `explain.jsonl` / `explain-real.jsonl`。
+コーパスは `test/fixtures/cron-parser.jsonl`（cron-parser の `tests/CronExpression.test.ts`
+と `tests/CronExpressionParser.test.ts` から採った式）と、既存の `explain.jsonl` /
+`explain-real.jsonl`。
 
 表記の違い（曜日の 7 と 0、`*` と `0-6`、値の重複、月が 1 つのときの日の切り詰め）は
-`test/helpers/cron-parser.ts` で吸収する。比較から外した式は集合として固定してあり、
-除外が増えたらテストが落ちる。
+`test/helpers/cron-parser.ts` で吸収する。吸収と除外は、こっそり広がると検査が空回りするので
+番人を置く。読めない式・書き戻せない式は集合として、比べたフィールド数と式数は実数として
+固定してあり、どれかが減ればテストが落ちる。
 
-`test/cron-parser-cases.test.ts`
+意図的な差で主なものは 3 つ。
 
-意図的に振る舞いが違うところを一覧で固定する。相手のテストにあってうちに無かった入力も
-ここに取り込む。
-
-| 分類 | 例 | 扱い |
+| 差 | 相手 | うち |
 |---|---|---|
-| 同じ理由で断る | `61 * * * * *`, `10 x 12 8 0`, `0 5/5/5 * * *` | エラーメッセージまで固定 |
-| cron-parser にしかない | `H/40 * * * *`, `@minutely`, `20 15 * *`(4 個), `? * * * *`, 曜日の `jan` | 断る理由を固定 |
-| うちにしかない | `L-3`, `15W`, `@midnight`, 循環範囲 `5-1`, リスト内の `#` | 読めることを固定 |
-| 日と曜日の OR | 曜日の `*/1` | 相手は制約と見なすが、うちは `*` と同じに扱う |
-| 表記違いの同義 | `0-7`, `7`, タブ区切り, `0,0,0`, `5/5` | 同じ値になることを固定 |
+| 循環範囲（`5-1`）、`L-3`、`15W`、`@midnight` | 断る | 読む |
+| `H` 記法、`@minutely`、フィールド数の補完、任意フィールドの `?` | 読む | 断る |
+| 曜日の `*/1`（日と曜日の OR 判定） | 制約と見なす | `*` と同じに扱う |
+
+値と次回実行日時が一致していても、日本語が別の日を指していれば意味がない。日と曜日の OR を
+`explain` だけが取り違えていた欠陥があったので、「62 日連続で動く式だけが日付を限定しない
+日本語になる」ことも `next` を基準に確かめている。
 
 ### 3.6 カバレッジ
 

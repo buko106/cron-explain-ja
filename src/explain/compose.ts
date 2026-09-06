@@ -6,7 +6,7 @@ import {
   MONTH_SPEC,
   SECOND_SPEC,
 } from "../cron/fields";
-import { coversAll, expandField, fullRangeStep, rangeStep, toRanges } from "../cron/values";
+import { coversAll, expandField, fullRangeStep, isAny, rangeStep, toRanges } from "../cron/values";
 import type { CronAST } from "../types";
 import {
   describeDayOfMonthField,
@@ -127,9 +127,16 @@ export interface DateDescription {
  * 日付部分を組み立てる。
  */
 export function describeDate(ast: CronAST, options: ComposeOptions): DateDescription {
-  const domAny = coversAll(ast.dayOfMonth, DOM_SPEC);
+  const domAll = coversAll(ast.dayOfMonth, DOM_SPEC);
   const monthAny = coversAll(ast.month, MONTH_SPEC);
-  const dowAny = coversAll(ast.dayOfWeek, DOW_SPEC);
+  const dowAll = coversAll(ast.dayOfWeek, DOW_SPEC);
+
+  // 標準の cron では、日と曜日を「両方とも」指定すると OR 条件になる（`*` / `?` は指定と
+  // 見なさない）。片方が全域を覆っていれば、もう片方が何であれ毎日一致する。
+  // `0 0 15 * 0-7` は「毎月15日」ではなく毎日動く
+  const orCoversEveryDay = !isAny(ast.dayOfMonth) && !isAny(ast.dayOfWeek) && (domAll || dowAll);
+  const domAny = domAll || orCoversEveryDay;
+  const dowAny = dowAll || orCoversEveryDay;
 
   if (domAny && monthAny && dowAny) {
     return { text: "毎日", joinWithNo: false, everyDay: true };

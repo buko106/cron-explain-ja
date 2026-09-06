@@ -55,7 +55,8 @@ function sortUnique(values: number[]): number[] {
  *
  * - 曜日の 7 は 0 と同じ日曜なので畳む（cron-parser は `1-7` を `[0,1,...,7]` として持つ）
  * - `L` や `5L` は数値でない要素として混ざるので落とす
- * - 同じ値の重複（`0,0` など）は落とす。うちは展開時に必ず一意にする
+ * - 重複した値は落とす。うちは `expandField` が必ず一意にするので、この正規化が
+ *   うち側の欠陥を隠すことはない
  */
 export function referenceValues(expression: string): FieldValues {
   const reference = CronExpressionParser.parse(expression);
@@ -138,9 +139,21 @@ export function hasCyclicRange(ast: FieldAST): boolean {
 /** 全域に刻み 1 を付けた書き方。`*` と同じ値を指すが、cron-parser は別扱いする */
 export const STEP_ONE_WILDCARD = "*/1";
 
-// cron-parser は日・曜日が「制約されているか」を書き方だけで決めるため、STEP_ONE_WILDCARD を
-// `*` と区別する。うちは値の集合で決めるので `*` と同じに扱う。この違いは日と曜日の OR 条件に
-// 効くので、次回実行日時を比べる式からは外す（差そのものは cron-parser-cases.test.ts で押さえる）
+/** `*` / `?` そのもの。どちらのライブラリも「指定なし」と読む */
+function unrestricted(raw: string): boolean {
+  return raw === "*" || raw === "?";
+}
+
+// 日・曜日が「制約されているか」は、どちらのライブラリも書き方で決める。cron-parser は
+// 書かれた文字列をそのまま見る（`*` か `?` だけが制約なし）ので STEP_ONE_WILDCARD を制約と
+// 見なすが、うちは `isAny` が刻み 1 の `*` を `*` と同じ書き方として畳む。
+//
+// この違いが効くのは日と曜日の OR 条件を通したときだけなので、片方が STEP_ONE_WILDCARD で、
+// かつもう片方が制約されている組み合わせだけを次回実行日時の比較から外す。`*/1 * * * *` の
+// ように OR に関係しない位置なら結果は一致するので、外す必要はない。
+// 差そのものは cron-parser-cases.test.ts で押さえる
 export function differsOnWildcardRule(dayOfMonth: string, dayOfWeek: string): boolean {
-  return dayOfMonth === STEP_ONE_WILDCARD || dayOfWeek === STEP_ONE_WILDCARD;
+  if (dayOfMonth === STEP_ONE_WILDCARD) return !unrestricted(dayOfWeek);
+  if (dayOfWeek === STEP_ONE_WILDCARD) return !unrestricted(dayOfMonth);
+  return false;
 }

@@ -9,7 +9,7 @@ import {
   parseExpression,
   SECOND_SPEC,
 } from "../src/cron";
-import { CronSyntaxError, explain, validate } from "../src/index";
+import { CronSyntaxError, CronTimeZoneError, explain, validate } from "../src/index";
 import type { ParserOptions } from "../src/types";
 import { referenceValues } from "./helpers/cron-parser";
 
@@ -173,15 +173,15 @@ describe("うちにしかない構文", () => {
   // crontab では `5-1`（金曜から月曜）のように年末・週末をまたぐ範囲が書ける。
   // cron-parser は min > max として断るが、うちは循環する範囲として読む
   it.each([
-    ["0 0 * * 5-1", DOW_SPEC, [0, 1, 5, 6]],
-    ["0 0 1 11-2 *", MONTH_SPEC, [1, 2, 11, 12]],
-    ["0 0 1 dec-jan *", MONTH_SPEC, [1, 12]],
-    ["0 0 * * MON-SUN", DOW_SPEC, [0, 1, 2, 3, 4, 5, 6]],
-  ] as const)("循環する範囲 %s を読む", (expression, spec, values) => {
+    ["0 0 * * 5-1", DOW_SPEC, [0, 1, 5, 6], "毎週日曜日、月曜日、金曜日、土曜日の午前0時"],
+    ["0 0 1 11-2 *", MONTH_SPEC, [1, 2, 11, 12], "1月、2月、11月、12月の1日の午前0時"],
+    ["0 0 1 dec-jan *", MONTH_SPEC, [1, 12], "1月と12月の1日の午前0時"],
+    ["0 0 * * MON-SUN", DOW_SPEC, [0, 1, 2, 3, 4, 5, 6], "毎日午前0時"],
+  ] as const)("循環する範囲 %s を読む", (expression, spec, values, text) => {
     expect(() => CronExpressionParser.parse(expression)).toThrow(/Invalid range/);
     const { ast } = parseExpression(expression);
     expect(expandField(spec === MONTH_SPEC ? ast.month : ast.dayOfWeek, spec)).toEqual(values);
-    expect(explain(expression, { tz: "UTC" })).not.toBe("");
+    expect(explain(expression, { tz: "UTC" })).toBe(text);
   });
 
   // Quartz は `#` を他の指定と組み合わせられない。cron-parser もそれに合わせて断るが、
@@ -204,9 +204,10 @@ describe("うちにしかない構文", () => {
 });
 
 describe("日と曜日の OR 条件", () => {
-  // cron-parser は「制約されているか」を書き方だけで決めるので、全曜日を指す `*` に
-  // 刻み 1 を付けた形を制約と見なし、日との OR で毎日動く式になる。
-  // うちは値の集合で決めるため制約なしと読む。Vixie cron も先頭が `*` なら制約なしに扱う
+  // 「制約されているか」は、どちらのライブラリも書き方で決める。cron-parser は書かれた
+  // 文字列をそのまま見る（`*` か `?` だけが制約なし）ので、全曜日を指す `*` に刻み 1 を
+  // 付けた形を制約と見なし、日との OR で毎日動く式になる。うちは同じ値を指す書き方として
+  // `*` に畳む。Vixie cron も `*` で始まる曜日を制約なしに扱うので、そちらに合わせている
   it("全曜日に刻み 1 を付けた形は、曜日の制約とは見なさない", () => {
     const expression = "0 0 16 * */1";
     expect(occurrences(expression, 2)).toEqual([
@@ -225,8 +226,33 @@ describe("日と曜日の OR 条件", () => {
     ["0 0 15 * 1", "日と曜日の両方が制約"],
     ["0 0 1-31 * 5", "日が全域でも制約"],
     ["0 0 31 2 1-5", "日が実在しなくても曜日で動く"],
+    ["0 0 15 * 0-7", "曜日が全域を覆うので毎日"],
+    ["0 0 15 * 0-6", "曜日が全域を覆うので毎日"],
+    ["0 0 15 * SUN-SAT", "曜日名で全域を覆うので毎日"],
   ])("%s は cron-parser と同じ日に動く（%s）", (expression) => {
     expect(occurrences(expression, 5)).toEqual(referenceOccurrences(expression, 5));
+  });
+
+  // 片方が全域を覆っていれば OR でどの日にも一致する。日本語もそう言わなければならない。
+  // `0-7` を全曜日として読めるようになったことで、ここが next と食い違っていた
+  it.each([
+    ["0 0 15 * 0-7", "毎日午前0時"],
+    ["0 0 15 * 0-6", "毎日午前0時"],
+    ["0 0 15 * 1-7", "毎日午前0時"],
+    ["0 0 15 * SUN-SAT", "毎日午前0時"],
+    ["0 0 1-31 * 5", "毎日午前0時"],
+    ["0 0 15 2 0-6", "2月の毎日午前0時"],
+    ["0 0 15 * *", "毎月15日の午前0時"],
+    ["0 0 15 * 1", "毎月15日および月曜日の午前0時"],
+  ])("%s の説明は「%s」", (expression, text) => {
+    expect(explain(expression, { tz: "UTC" })).toBe(text);
+  });
+
+  // 日をずらすタイムゾーン変換も同じ判定を使う。毎日動く式を「15 日だけ」と読むと、
+  // 月をまたぐかどうかの検査をすり抜けて、黙って別の予定の式を返してしまう
+  it("毎日動く式は、日をずらす変換の対象にしない", () => {
+    expect(() => explain("0 20 15 2 0-7", { tz: "Asia/Tokyo" })).toThrow(CronTimeZoneError);
+    expect(explain("0 20 15 2 *", { tz: "Asia/Tokyo" })).toBe("毎年2月16日の午前5時");
   });
 });
 
@@ -266,8 +292,9 @@ describe("表記が違っても同じ意味になる", () => {
     expect(occurrences(expression, 3)).toEqual(occurrences("* * * * *", 3));
   });
 
-  // cron-parser は重複をそのまま値の配列に残す（`0,0` は `[0, 0]`）。
-  // うちは展開時に必ず一意にするので、比べるときは相手側の重複を落としている
+  // cron-parser は同じ値が 2 度現れる式を拒否する。ただし配布ビルド v5.10.0 は重複値の
+  // 判定が falsy 検査になっているため、重複しているのが `0` のときだけすり抜けて
+  // `[0, 0]` のまま残る。うちは展開時に必ず一意にするので、比べるときは相手側で落としている
   it.each([
     ["0,0 * * * *", "minute"],
     ["0,0,0 * * * *", "minute"],
@@ -278,6 +305,29 @@ describe("表記が違っても同じ意味になる", () => {
     expect(expandField(field === "minute" ? ast.minute : ast.dayOfWeek, spec)).toEqual([0]);
     expect(referenceValues(expression)[field]).toEqual([0]);
     expect(occurrences(expression, 3)).toEqual(referenceOccurrences(expression, 3));
+  });
+
+  it.each(["1,1 * * * *", "0 0 * * 1,1,1"])(
+    "0 以外の重複は cron-parser が断る: %s",
+    (expression) => {
+      expect(() => CronExpressionParser.parse(expression)).toThrow(/duplicate values found/);
+      // うちは重複を畳んで受け付ける。実行される日時は重複の有無で変わらない
+      expect(validate(expression).valid).toBe(true);
+    },
+  );
+
+  // 曜日は上限が 7（日曜）なので、`5/1` は金・土・日。範囲 `5-7` と同じ集合になる
+  it.each([
+    ["0 0 * * 7/2", [0], "7 は日曜。そこから先に値は無い"],
+    ["0 0 * * 5/1", [0, 5, 6], "金曜から日曜まで"],
+    ["0 0 * * 1/2", [0, 1, 3, 5], "月・水・金・日"],
+    ["0 0 * * 0/2", [0, 2, 4, 6], "日・火・木・土"],
+  ] as const)("曜日に刻みを付けた %s は %j（%s）", (expression, values, _note) => {
+    expect(expandField(parseExpression(expression).ast.dayOfWeek, DOW_SPEC)).toEqual(values);
+    expect(referenceValues(expression).dayOfWeek).toEqual(values);
+    // 上限まで書き下した範囲と同じ集合になる（`1/2` は `1-7/2`）
+    const range = expression.replace(/(\d)\/(\d)$/, "$1-7/$2");
+    expect(expandField(parseExpression(range).ast.dayOfWeek, DOW_SPEC)).toEqual(values);
   });
 
   it.each([
