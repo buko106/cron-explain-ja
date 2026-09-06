@@ -3,7 +3,6 @@ import {
   DOW_SPEC,
   expandField,
   type FieldSpec,
-  fixedOffsetMinutes,
   formatExpression,
   formatField,
   HOUR_SPEC,
@@ -14,7 +13,6 @@ import {
   parseExpression,
   resolveTimeZone,
   SECOND_SPEC,
-  SERVER_TIME_ZONE,
   shiftAst,
   validate,
 } from "../cron";
@@ -49,18 +47,6 @@ function parserOptions(options: ExplainOptions): ParserOptions {
 }
 
 /**
- * cron 式（UTC）を読み替えるゾーンと、そこまでのずれ（分）を求める。
- *
- * @throws {CronTimeZoneError} ゾーン名が解釈できない、または夏時間がある場合
- */
-function timeZoneShift(options: ExplainOptions): { timeZone: string; delta: number } {
-  const timeZone = resolveTimeZone(options.tz);
-  // UTC のままなら夏時間の検査も要らない
-  if (timeZone === SERVER_TIME_ZONE) return { timeZone, delta: 0 };
-  return { timeZone, delta: fixedOffsetMinutes(timeZone) };
-}
-
-/**
  * cron 式を 1 文の日本語に変換する。
  *
  * 式は UTC のサーバーで動くものとして読み、`options.tz`（既定 `'Asia/Tokyo'`）の
@@ -76,8 +62,8 @@ function timeZoneShift(options: ExplainOptions): { timeZone: string; delta: numb
  */
 export function explain(expression: string, options: ExplainOptions = {}): string {
   const parsed = parseExpression(expression, parserOptions(options));
-  const { timeZone, delta } = timeZoneShift(options);
-  const text = compose(shiftAst(parsed.ast, delta, timeZone), resolve(options));
+  const timeZone = resolveTimeZone(options.tz);
+  const text = compose(shiftAst(parsed.ast, timeZone, "toLocal"), resolve(options));
   return options.showTimeZone === true ? `${text}（${timeZone}）` : text;
 }
 
@@ -121,43 +107,44 @@ function explainField(raw: string, ast: FieldAST, spec: FieldSpec, text: string)
 export function explainDetailed(expression: string, options: ExplainOptions = {}): Explanation {
   const parsed = parseExpression(expression, parserOptions(options));
   const composeOptions = resolve(options);
-  const { timeZone, delta } = timeZoneShift(options);
-  const ast = shiftAst(parsed.ast, delta, timeZone);
+  const timeZone = resolveTimeZone(options.tz);
+  const ast = shiftAst(parsed.ast, timeZone, "toLocal");
 
   const normalized = formatExpression(parsed.ast);
-  const localized = delta === 0 ? normalized : formatExpression(ast);
-  // 書き換えたあとは入力の字面と値がずれるので、raw も書き換え後のものにする
-  const raw = (field: keyof typeof parsed.raw, node: FieldAST): string =>
-    delta === 0 ? (parsed.raw[field] ?? formatField(node)) : formatField(node);
+  const localized = ast === parsed.ast ? normalized : formatExpression(ast);
+  // 書き換わったフィールドだけ raw を差し替える。触っていないフィールドは
+  // 入力の字面（JAN や MON-FRI）をそのまま見せる
+  const raw = (field: keyof typeof parsed.raw, before: FieldAST, after: FieldAST): string =>
+    before === after ? (parsed.raw[field] ?? formatField(after)) : formatField(after);
   const dowOptions = { weekly: false, collapse: composeOptions.collapseWeekdays };
 
   const fields: Explanation["fields"] = {
     minute: explainField(
-      raw("minute", ast.minute),
+      raw("minute", parsed.ast.minute, ast.minute),
       ast.minute,
       MINUTE_SPEC,
       describeMinuteField(ast.minute),
     ),
     hour: explainField(
-      raw("hour", ast.hour),
+      raw("hour", parsed.ast.hour, ast.hour),
       ast.hour,
       HOUR_SPEC,
       describeHourField(ast.hour, composeOptions),
     ),
     dayOfMonth: explainField(
-      raw("dayOfMonth", ast.dayOfMonth),
+      raw("dayOfMonth", parsed.ast.dayOfMonth, ast.dayOfMonth),
       ast.dayOfMonth,
       DOM_SPEC,
       describeDayOfMonthField(ast.dayOfMonth),
     ),
     month: explainField(
-      raw("month", ast.month),
+      raw("month", parsed.ast.month, ast.month),
       ast.month,
       MONTH_SPEC,
       describeMonthField(ast.month),
     ),
     dayOfWeek: explainField(
-      raw("dayOfWeek", ast.dayOfWeek),
+      raw("dayOfWeek", parsed.ast.dayOfWeek, ast.dayOfWeek),
       ast.dayOfWeek,
       DOW_SPEC,
       describeDayOfWeekField(ast.dayOfWeek, dowOptions),
@@ -165,14 +152,15 @@ export function explainDetailed(expression: string, options: ExplainOptions = {}
   };
   if (ast.seconds !== undefined) {
     fields.second = explainField(
-      raw("seconds", ast.seconds),
+      raw("seconds", parsed.ast.seconds ?? ast.seconds, ast.seconds),
       ast.seconds,
       SECOND_SPEC,
       describeSecondField(ast.seconds),
     );
   }
 
-  const text = explain(expression, options);
+  const composed = compose(ast, composeOptions);
+  const text = options.showTimeZone === true ? `${composed}（${timeZone}）` : composed;
   const { warnings } = validate(expression, parserOptions(options));
 
   return {

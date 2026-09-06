@@ -1,4 +1,4 @@
-import { SERVER_TIME_ZONE } from "../../cron";
+import { SERVER_TIME_ZONE, validate } from "../../cron";
 import { CronSyntaxError, CronTimeZoneError } from "../../errors";
 import { explain, explainDetailed } from "../../explain";
 import type { ExplainOptions } from "../../types";
@@ -102,8 +102,11 @@ export async function explainCommand(args: CliArgs, io: IO): Promise<number> {
         for (const line of detailedLines(input, options, io)) io.out(line);
       } else {
         io.out(explain(input, options));
+        // note は式の検証結果そのもの。explainDetailed を組み立て直すと
+        // 捨てるだけの next() まで走ってしまう
         if (!quiet) {
-          for (const note of explainDetailed(input, options).notes) reportNote(io, note);
+          const parserOptions = options.seconds === true ? { seconds: true } : {};
+          for (const note of validate(input, parserOptions).warnings) reportNote(io, note);
         }
       }
     } catch (error) {

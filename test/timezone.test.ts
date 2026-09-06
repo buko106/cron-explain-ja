@@ -148,8 +148,8 @@ describe("書き換えは往復する", () => {
   ];
 
   it.each(expressions)("%s は UTC → Asia/Tokyo → UTC で戻る", (expression) => {
-    const local = shiftExpression(expression, 540, TOKYO);
-    const back = shiftExpression(local, -540, TOKYO);
+    const local = shiftExpression(expression, TOKYO, "toLocal");
+    const back = shiftExpression(local, TOKYO, "toServer");
     expect(back).toBe(formatExpression(parseExpression(expression).ast));
   });
 });
@@ -196,5 +196,72 @@ describe("CLI", () => {
     const parseIO = io();
     expect(await run(["parse", "毎日午後1時", "--tz", "America/New_York"], parseIO)).toBe(2);
     expect(parseIO.stderr[0]).toContain("夏時間");
+  });
+});
+
+describe("レビューで見つかった不具合の回帰", () => {
+  it("エラーメッセージの時差はゾーンのオフセットで、向きによって符号が変わらない", () => {
+    // explain(UTC→JST) と parse(JST→UTC) は逆向きだが、どちらも「+9:00」と言うべき
+    const messages: string[] = [];
+    for (const run of [() => explain("0 20 31 * *"), () => parse("毎月1日の午前1時")]) {
+      try {
+        run();
+        throw new Error("エラーになるはず");
+      } catch (error) {
+        messages.push((error as Error).message);
+      }
+    }
+    for (const message of messages) {
+      expect(message).toContain("時差 +9:00");
+      expect(message).not.toContain("-9:00");
+    }
+  });
+
+  it("-i で書き換えられない答えを返しても exit 2 で、後続の行も止めない", async () => {
+    const memory = io({ answers: ["5"] });
+    // JST 1月1日 05:00 は UTC では前年 12月31日 20:00 になり、cron 式で表せない
+    expect(await run(["parse", "毎年", "-i"], memory)).toBe(2);
+    expect(memory.stderr.some((line) => line.includes("月をまたぐ"))).toBe(true);
+  });
+
+  it("-i --json の localExpression は答えたあとの時刻になる", async () => {
+    const memory = io({ answers: ["7"] });
+    await run(["parse", "毎日", "-i", "--json"], memory);
+    const payload = JSON.parse(memory.stdout[0] ?? "{}") as {
+      expression: string;
+      localExpression: string;
+    };
+    // JST 07:00 = UTC 前日 22:00。両者が同じ予定を指していること
+    expect(payload.expression).toBe("0 22 * * *");
+    expect(payload.localExpression).toBe("0 7 * * *");
+  });
+
+  it("オフセットの無い --from は --tz の壁時計として読む（ホストの TZ に依存しない）", async () => {
+    const utc = io();
+    await run(
+      ["next", "0 4 * * *", "--from", "2026-06-14T02:00:00", "--tz", "UTC", "-n", "1"],
+      utc,
+    );
+    expect(utc.stdout).toEqual(["2026-06-14 (日) 04:00"]);
+
+    const tokyo = io();
+    await run(["next", "0 4 * * *", "--from", "2026-06-14T14:00:00", "-n", "1"], tokyo);
+    // JST 14:00 = UTC 05:00 なので、次は翌日の UTC 04:00 = JST 13:00
+    expect(tokyo.stdout).toEqual(["2026-06-15 (月) 13:00"]);
+  });
+
+  it("書き換わっていないフィールドの raw は入力の字面を残す", () => {
+    const detail = explainDetailed("0 4 1 JAN MON-FRI");
+    expect(detail.fields.hour.raw).toBe("13"); // 書き換わった
+    expect(detail.fields.month.raw).toBe("JAN"); // 触っていない
+    expect(detail.fields.dayOfWeek.raw).toBe("MON-FRI");
+    expect(detail.fields.dayOfMonth.raw).toBe("1");
+  });
+
+  it("夏時間の判定は翌年まで見る", () => {
+    // Asia/Tokyo と UTC は今年も翌年も動かない
+    expect(() => explain("0 4 * * *", { tz: TOKYO })).not.toThrow();
+    expect(() => explain("0 4 * * *", { tz: "UTC" })).not.toThrow();
+    expect(() => explain("0 4 * * *", { tz: "America/New_York" })).toThrow(CronTimeZoneError);
   });
 });

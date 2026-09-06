@@ -3,6 +3,14 @@ import type { CronAST, FieldAST, ParserOptions } from "../types";
 import { DOM_SPEC, DOW_SPEC, type FieldSpec, HOUR_SPEC, MINUTE_SPEC, MONTH_SPEC } from "./fields";
 import { parseExpression } from "./parser";
 import { coversAll, expandField, formatExpression, hasExtension, toRanges } from "./values";
+import { fixedOffsetMinutes, SERVER_TIME_ZONE } from "./zone";
+
+/**
+ * 書き換えの向き。
+ * - `'toLocal'`: cron 式(UTC) → `timeZone` の壁時計（explain）
+ * - `'toServer'`: `timeZone` の壁時計 → cron 式(UTC)（parse）
+ */
+export type ShiftDirection = "toLocal" | "toServer";
 
 const MINUTES_PER_DAY = 1440;
 
@@ -64,18 +72,24 @@ function fromValues(values: number[], spec: FieldSpec): FieldAST {
 }
 
 /**
- * cron 式の壁時計を `deltaMinutes` だけずらす。
+ * cron 式(UTC) と `timeZone` の壁時計の間で、フィールドをずらす。
  *
  * cron 式は「フィールドごとに独立した値の集合」しか表せないので、ずらした結果が
  * その形に収まらない場合は書き換えられない。収まらないまま近い式を返すと、
  * 半年ずれた予定を黙って出すことになるため {@link CronTimeZoneError} で失敗させる。
  *
- * @throws {CronTimeZoneError} ずらした結果が cron 式で表せない場合
+ * @throws {CronTimeZoneError} ゾーンのオフセットが動く、または結果が cron 式で表せない場合
  */
-export function shiftAst(ast: CronAST, deltaMinutes: number, timeZone: string): CronAST {
+export function shiftAst(ast: CronAST, timeZone: string, direction: ShiftDirection): CronAST {
+  // UTC のままなら書き換えも夏時間の検査も要らない
+  if (timeZone === SERVER_TIME_ZONE) return ast;
+
+  const zoneOffset = fixedOffsetMinutes(timeZone);
+  const deltaMinutes = direction === "toLocal" ? zoneOffset : -zoneOffset;
   if (deltaMinutes === 0) return ast;
 
-  const offset = formatOffset(deltaMinutes);
+  // 表示するのは常にゾーンのオフセット。向きによって符号が変わると読み手が混乱する
+  const offset = formatOffset(zoneOffset);
   const fail = (reason: string): never => {
     throw new CronTimeZoneError(`${timeZone}（時差 ${offset}）では${reason}`, timeZone);
   };
@@ -163,18 +177,18 @@ export function shiftAst(ast: CronAST, deltaMinutes: number, timeZone: string): 
 }
 
 /**
- * cron 式の文字列を `deltaMinutes` だけずらす。
+ * cron 式の文字列を {@link shiftAst} と同じ規則でずらす。
  *
  * @throws {CronSyntaxError} 式が不正な場合
- * @throws {CronTimeZoneError} ずらした結果が cron 式で表せない場合
+ * @throws {CronTimeZoneError} ゾーンのオフセットが動く、または結果が cron 式で表せない場合
  */
 export function shiftExpression(
   expression: string,
-  deltaMinutes: number,
   timeZone: string,
+  direction: ShiftDirection,
   options: ParserOptions = {},
 ): string {
-  if (deltaMinutes === 0) return expression;
+  if (timeZone === SERVER_TIME_ZONE) return expression;
   const { ast } = parseExpression(expression, options);
-  return formatExpression(shiftAst(ast, deltaMinutes, timeZone));
+  return formatExpression(shiftAst(ast, timeZone, direction));
 }

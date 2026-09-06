@@ -1,4 +1,4 @@
-import { validate } from "../../cron";
+import { shiftExpression, validate } from "../../cron";
 import { CronTimeZoneError, ParseAmbiguityError } from "../../errors";
 import { parse } from "../../parse";
 import type { Ambiguity, ParseOptions, ParseResult } from "../../types";
@@ -15,7 +15,6 @@ import {
   reportNote,
   reportWarn,
   resolveZone,
-  shiftToServer,
   stringOption,
 } from "./shared";
 
@@ -110,7 +109,8 @@ export async function parseCommand(args: CliArgs, io: IO): Promise<number> {
       throw error;
     }
 
-    if (result.expression === null) {
+    // expression と localExpression は必ず揃って null になる（時間表現なし）
+    if (result.expression === null || result.localExpression === null) {
       if (json && multiple) {
         io.out(JSON.stringify({ input, error: "時間表現が見つかりません" }));
       } else {
@@ -121,24 +121,34 @@ export async function parseCommand(args: CliArgs, io: IO): Promise<number> {
     }
 
     let expression = result.expression;
+    let localExpression = result.localExpression;
     if (wantsInteractive && result.ambiguities.length > 0) {
       const resolved = await resolveInteractively(result, io);
       if (resolved === null) {
         code = Math.max(code, EXIT_INPUT);
         continue;
       }
-      expression = shiftToServer(resolved, result.tz);
+      try {
+        // 答えは日本語側の時刻なので、ここで UTC へ書き換える
+        expression = shiftExpression(resolved, result.tz, "toServer");
+      } catch (error) {
+        if (!(error instanceof CronTimeZoneError)) throw error;
+        reportError(io, error.message);
+        code = Math.max(code, EXIT_INPUT);
+        continue;
+      }
+      localExpression = resolved;
     }
 
     if (json) {
-      const payload = { ...result, expression };
+      const payload = { ...result, expression, localExpression };
       io.out(JSON.stringify(multiple ? { input, ...payload } : payload));
       continue;
     }
 
     io.out(expression);
     if (!quiet && !wantsInteractive) {
-      const fields = (result.localExpression ?? expression).split(" ");
+      const fields = localExpression.split(" ");
       for (const ambiguity of result.ambiguities) {
         const index = FIELD_INDEX[ambiguity.field];
         const chosen = index >= 0 ? fields[index] : undefined;

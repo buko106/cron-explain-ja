@@ -13,20 +13,9 @@ interface Parts {
   dayOfWeek: number;
 }
 
-interface Clock {
-  parts(date: Date): Parts;
-  make(
-    year: number,
-    month: number,
-    day: number,
-    hour: number,
-    minute: number,
-    second: number,
-  ): Date;
-}
-
-const utcClock: Clock = {
-  parts: (date) => ({
+/** 瞬間 → UTC の壁時計 */
+function partsOf(date: Date): Parts {
+  return {
     year: date.getUTCFullYear(),
     month: date.getUTCMonth() + 1,
     day: date.getUTCDate(),
@@ -34,10 +23,20 @@ const utcClock: Clock = {
     minute: date.getUTCMinutes(),
     second: date.getUTCSeconds(),
     dayOfWeek: date.getUTCDay(),
-  }),
-  make: (year, month, day, hour, minute, second) =>
-    new Date(Date.UTC(year, month - 1, day, hour, minute, second, 0)),
-};
+  };
+}
+
+/** UTC の壁時計 → 瞬間。範囲外の値（13 月・32 日・24 時など）は繰り上がる */
+function dateOf(
+  year: number,
+  month: number,
+  day: number,
+  hour: number,
+  minute: number,
+  second: number,
+): Date {
+  return new Date(Date.UTC(year, month - 1, day, hour, minute, second, 0));
+}
 
 /** sorted の中で value 以上の最小値。無ければ null */
 function atLeast(sorted: number[], value: number): number | null {
@@ -69,7 +68,6 @@ export function next(expression: string, options: NextOptions = {}): Date[] {
   const count = options.count ?? 3;
   if (count <= 0) return [];
 
-  const clock = utcClock;
   const from = options.from ?? new Date();
   if (Number.isNaN(from.getTime())) return [];
 
@@ -97,11 +95,12 @@ export function next(expression: string, options: NextOptions = {}): Date[] {
     return true;
   };
 
-  const startParts = clock.parts(from);
+  const startParts = partsOf(from);
   const limitYear = startParts.year + SEARCH_YEARS;
 
-  const initial = clock.parts(new Date(from.getTime() + 1000));
-  let cursor = clock.make(
+  // 起点そのものは含めないので 1 秒進めてから秒に丸める
+  const initial = partsOf(new Date(from.getTime() + 1000));
+  let cursor = dateOf(
     initial.year,
     initial.month,
     initial.day,
@@ -110,54 +109,46 @@ export function next(expression: string, options: NextOptions = {}): Date[] {
     initial.second,
   );
 
-  /** 夏時間の巻き戻しなどで時刻が戻らないよう、必ず前進させる */
-  const moveTo = (candidate: Date): Date =>
-    candidate.getTime() > cursor.getTime() ? candidate : new Date(cursor.getTime() + 1000);
-
   const results: Date[] = [];
   let iterations = 0;
   while (results.length < count && iterations < MAX_ITERATIONS) {
     iterations += 1;
-    const parts = clock.parts(cursor);
+    const parts = partsOf(cursor);
     if (parts.year > limitYear) break;
 
     if (!monthSet.has(parts.month)) {
-      cursor = moveTo(clock.make(parts.year, parts.month + 1, 1, 0, 0, 0));
+      cursor = dateOf(parts.year, parts.month + 1, 1, 0, 0, 0);
       continue;
     }
     if (!dayMatches(parts)) {
-      cursor = moveTo(clock.make(parts.year, parts.month, parts.day + 1, 0, 0, 0));
+      cursor = dateOf(parts.year, parts.month, parts.day + 1, 0, 0, 0);
       continue;
     }
     const hour = atLeast(hours, parts.hour);
     if (hour === null) {
-      cursor = moveTo(clock.make(parts.year, parts.month, parts.day + 1, 0, 0, 0));
+      cursor = dateOf(parts.year, parts.month, parts.day + 1, 0, 0, 0);
       continue;
     }
     if (hour !== parts.hour) {
-      cursor = moveTo(clock.make(parts.year, parts.month, parts.day, hour, 0, 0));
+      cursor = dateOf(parts.year, parts.month, parts.day, hour, 0, 0);
       continue;
     }
     const minute = atLeast(minutes, parts.minute);
     if (minute === null) {
-      cursor = moveTo(clock.make(parts.year, parts.month, parts.day, parts.hour + 1, 0, 0));
+      cursor = dateOf(parts.year, parts.month, parts.day, parts.hour + 1, 0, 0);
       continue;
     }
     if (minute !== parts.minute) {
-      cursor = moveTo(clock.make(parts.year, parts.month, parts.day, parts.hour, minute, 0));
+      cursor = dateOf(parts.year, parts.month, parts.day, parts.hour, minute, 0);
       continue;
     }
     const second = atLeast(seconds, parts.second);
     if (second === null) {
-      cursor = moveTo(
-        clock.make(parts.year, parts.month, parts.day, parts.hour, parts.minute + 1, 0),
-      );
+      cursor = dateOf(parts.year, parts.month, parts.day, parts.hour, parts.minute + 1, 0);
       continue;
     }
     if (second !== parts.second) {
-      cursor = moveTo(
-        clock.make(parts.year, parts.month, parts.day, parts.hour, parts.minute, second),
-      );
+      cursor = dateOf(parts.year, parts.month, parts.day, parts.hour, parts.minute, second);
       continue;
     }
 

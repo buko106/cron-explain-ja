@@ -26,16 +26,6 @@ export interface WallClock {
   dayOfWeek: number;
 }
 
-const WEEKDAYS: Record<string, number> = {
-  Sun: 0,
-  Mon: 1,
-  Tue: 2,
-  Wed: 3,
-  Thu: 4,
-  Fri: 5,
-  Sat: 6,
-};
-
 /** Intl.DateTimeFormat の生成は重いのでゾーンごとに使い回す */
 const formatters = new Map<string, Intl.DateTimeFormat>();
 
@@ -52,7 +42,6 @@ function formatter(timeZone: string): Intl.DateTimeFormat {
     hour: "2-digit",
     minute: "2-digit",
     second: "2-digit",
-    weekday: "short",
   });
   formatters.set(timeZone, created);
   return created;
@@ -75,47 +64,73 @@ export function resolveTimeZone(tz?: string): string {
   }
 }
 
-/** その瞬間の壁時計 */
-export function wallClock(timeZone: string, date: Date): WallClock {
+/** 壁時計を UTC とみなしたミリ秒 */
+function asUtc(wall: WallClock): number {
+  return Date.UTC(wall.year, wall.month - 1, wall.day, wall.hour, wall.minute, wall.second);
+}
+
+/** その瞬間の壁時計と、そのときのゾーンオフセット(分) */
+export function wallClockWithOffset(
+  timeZone: string,
+  date: Date,
+): { wall: WallClock; offset: number } {
   const found: Record<string, string> = {};
   for (const part of formatter(timeZone).formatToParts(date)) {
     if (part.type !== "literal") found[part.type] = part.value;
   }
-  return {
-    year: Number(found.year),
-    month: Number(found.month),
-    day: Number(found.day),
+  const year = Number(found.year);
+  const month = Number(found.month);
+  const day = Number(found.day);
+  const wall: WallClock = {
+    year,
+    month,
+    day,
     // h23 でも 24 を返す実装が過去にあったため丸めておく
     hour: Number(found.hour) % 24,
     minute: Number(found.minute),
     second: Number(found.second),
-    dayOfWeek: WEEKDAYS[found.weekday ?? ""] ?? 0,
+    // 曜日は暦から求める。ICU の短縮形に依存すると、読めない綴りを黙って日曜にしてしまう
+    dayOfWeek: new Date(Date.UTC(year, month - 1, day)).getUTCDay(),
   };
+  return { wall, offset: (asUtc(wall) - Math.floor(date.getTime() / 1000) * 1000) / 60_000 };
 }
 
 /** その瞬間のゾーンオフセット(分)。UTC より東が正 */
-export function offsetMinutes(timeZone: string, date: Date): number {
-  const parts = wallClock(timeZone, date);
-  const asUtc = Date.UTC(
-    parts.year,
-    parts.month - 1,
-    parts.day,
-    parts.hour,
-    parts.minute,
-    parts.second,
-  );
-  return (asUtc - Math.floor(date.getTime() / 1000) * 1000) / 60_000;
+function offsetMinutes(timeZone: string, date: Date): number {
+  return wallClockWithOffset(timeZone, date).offset;
+}
+
+/**
+ * 壁時計 → 瞬間。オフセットを 2 回反復して収束させる。
+ *
+ * 夏時間の境界にあたる壁時計では厳密には決まらないが、探索の起点にしか使わないので
+ * 近い側に寄せれば足りる。
+ */
+export function instantAt(
+  timeZone: string,
+  year: number,
+  month: number,
+  day: number,
+  hour: number,
+  minute: number,
+  second: number,
+): Date {
+  const guess = Date.UTC(year, month - 1, day, hour, minute, second);
+  const first = guess - offsetMinutes(timeZone, new Date(guess)) * 60_000;
+  return new Date(guess - offsetMinutes(timeZone, new Date(first)) * 60_000);
 }
 
 const fixedOffsets = new Map<string, number>();
 
 /**
- * 年間を通して変わらないゾーンオフセット(分)を返す。
+ * 変わらないゾーンオフセット(分)を返す。
  *
- * cron 式の書き換えは固定のオフセットでしか行えないため、夏時間のあるゾーンは
- * ここで弾く。1 か月ごとに 12 点サンプルして、すべて同じであることを確かめる。
+ * cron 式の書き換えは固定のオフセットでしか行えないため、オフセットが動くゾーンは
+ * ここで弾く。書き換えた式は crontab に貼られたあと何年も動き続けるので、
+ * 今年だけでなく**翌年まで**を 1 か月ごとにサンプルして、すべて同じであることを確かめる
+ * （夏時間を来年から始める国を今年のぶんだけ見て通すと、半年ずれた式を黙って出すことになる）。
  *
- * @throws {CronTimeZoneError} 年内でオフセットが変わる（＝夏時間がある）場合
+ * @throws {CronTimeZoneError} 期間内でオフセットが変わる場合
  */
 export function fixedOffsetMinutes(timeZone: string, reference: Date = new Date()): number {
   const year = reference.getUTCFullYear();
@@ -124,13 +139,14 @@ export function fixedOffsetMinutes(timeZone: string, reference: Date = new Date(
   if (cached !== undefined) return cached;
 
   const offsets = new Set<number>();
-  for (let month = 0; month < 12; month += 1) {
+  for (let month = 0; month < 24; month += 1) {
     offsets.add(offsetMinutes(timeZone, new Date(Date.UTC(year, month, 15, 12))));
   }
   const [offset] = [...offsets];
   if (offsets.size > 1 || offset === undefined) {
     throw new CronTimeZoneError(
-      `${timeZone} は ${year} 年に夏時間があるため、cron 式を固定のオフセットに書き換えられません`,
+      `${timeZone} は ${year}-${year + 1} 年にオフセットが変わる（夏時間など）ため、` +
+        "cron 式を固定のオフセットに書き換えられません",
       timeZone,
     );
   }

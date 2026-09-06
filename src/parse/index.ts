@@ -1,4 +1,4 @@
-import { fixedOffsetMinutes, resolveTimeZone, SERVER_TIME_ZONE, shiftExpression } from "../cron";
+import { resolveTimeZone, shiftExpression } from "../cron";
 import { ParseAmbiguityError } from "../errors";
 import type { ParseOptions, ParseResult } from "../types";
 import { emit, fill } from "./fill";
@@ -25,8 +25,6 @@ function round2(value: number): number {
  */
 export function parse(text: string, options: ParseOptions = {}): ParseResult {
   const timeZone = resolveTimeZone(options.tz);
-  // 日本語 → UTC なので、ゾーンのオフセットぶんだけ戻す
-  const delta = timeZone === SERVER_TIME_ZONE ? 0 : -fixedOffsetMinutes(timeZone);
 
   const tokens = tokenize(normalize(text));
   const slots = fill(tokens, options);
@@ -50,7 +48,7 @@ export function parse(text: string, options: ParseOptions = {}): ParseResult {
   const total = slots.penalties.reduce((sum, penalty) => sum + penalty.amount, 0);
   const local = emit(slots);
   const result: ParseResult = {
-    expression: shiftExpression(local, delta, timeZone),
+    expression: shiftExpression(local, timeZone, "toServer"),
     localExpression: local,
     tz: timeZone,
     confidence: round2(Math.max(0, 1 - total)),
