@@ -1,8 +1,13 @@
 name: Release
 on:
   push: { branches: [main] }
-  # publish せずに OIDC の交換だけを試す oidc-check ジョブ用。
+  # oidc-check ジョブ用。
   workflow_dispatch:
+    inputs:
+      publish:
+        description: "未公開バージョンを npm へ直接 publish する（verbose ログ付き）"
+        type: boolean
+        default: false
 permissions:
   contents: write
   pull-requests: write
@@ -62,13 +67,6 @@ jobs:
           # （repo スコープ）を使う。未設定でもリリースが止まらないよう
           # GITHUB_TOKEN にフォールバックする。
           github-token: ${{ secrets.RELEASE_TOKEN || secrets.GITHUB_TOKEN }}
-        env:
-          # publish が失敗したときに npm 側の理由が分かるようにする。1.0.1 の
-          # publish は E403「OIDC permission denied for this action」で落ちたが、
-          # 既定のログでは交換が成功したのか、どの要求が拒まれたのかが残らなかった。
-          # npm はログを stderr、--json の結果を stdout に出すので changesets の
-          # 出力解析とは干渉しない。トークンの値はログに出ない。
-          NPM_CONFIG_LOGLEVEL: verbose
 
   # trusted publisher の登録を、publish せずに確かめるための手動実行ジョブ。
   # npm publish は --dry-run でも OIDC の交換まで進むので、その結果だけを見る。
@@ -101,3 +99,30 @@ jobs:
             echo "NG: OIDC トークンを交換できなかった。npmjs.com の trusted publisher 設定を確認すること"
             exit 1
           fi
+          # 交換が 201 でも publish 権限があるとは限らない（1.0.1 は交換に成功した
+          # うえで PUT が E403 になった）。ここが OK でも publish の可否は別途見ること。
+      # npm の trusted publisher 設定と突き合わせるために、OIDC トークンの識別
+      # クレームを出す。設定側の Repository / Workflow filename / Environment が
+      # これと 1 文字でも違うと publish は拒まれる。トークン本体は出さない。
+      - name: OIDC トークンの識別クレームを出す
+        run: |
+          cat > "$RUNNER_TEMP/claims.mjs" <<'JS'
+          const url = new URL(process.env.ACTIONS_ID_TOKEN_REQUEST_URL);
+          url.searchParams.set("audience", "npm:registry.npmjs.org");
+          const res = await fetch(url, {
+            headers: { Authorization: `Bearer ${process.env.ACTIONS_ID_TOKEN_REQUEST_TOKEN}` },
+          });
+          const { value } = await res.json();
+          const claims = JSON.parse(Buffer.from(value.split(".")[1], "base64url").toString());
+          for (const k of ["repository_owner", "repository", "repository_visibility",
+                           "workflow_ref", "job_workflow_ref", "environment", "ref"]) {
+            console.log(k.padEnd(24), claims[k] ?? "(なし)");
+          }
+          JS
+          node "$RUNNER_TEMP/claims.mjs"
+      # changesets は pnpm publish の出力を pipe で握り潰すので、publish が落ちても
+      # npm 側の理由がワークフローのログに残らない（NPM_CONFIG_LOGLEVEL=verbose を
+      # 渡しても 1 行も出なかった）。ここでは npm を直接叩いて verbose を出す。
+      - name: 未公開バージョンを直接 publish する
+        if: ${{ inputs.publish }}
+        run: npm publish --ignore-scripts --loglevel verbose
