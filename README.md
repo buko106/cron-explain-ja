@@ -263,11 +263,11 @@ pnpm changeset        # 変更の種類（major/minor/patch）と説明を書く
 main にマージすると Release ワークフローが「Version Packages」PR を作り、その PR を
 マージすると npm に公開されます。
 
-必要な GitHub Secrets は次の 2 つです。
+npm への publish は Trusted Publishing（OIDC）で行うので、npm のトークンは保管しません。
+必要な GitHub Secrets は次の 1 つだけです。
 
 | Secret | 用途 |
 |---|---|
-| `NPM_TOKEN` | npm への publish。`cron-explain-ja` に対する Read and write 権限 |
 | `RELEASE_TOKEN` | Version PR に CI を走らせるための classic PAT（`repo` スコープ） |
 
 `RELEASE_TOKEN` が要るのは、ビルトインの `GITHUB_TOKEN` で push すると **Version PR の
@@ -289,13 +289,37 @@ classic PAT を使ってください。未設定でも `GITHUB_TOKEN` にフォ�
 **タグの push と GitHub Release の作成が黙って飛ばされます**（publish 自体は成功するので
 気づきにくい）。v2 は NDJSON のファイル経由で結果を受け取るのでこの問題がありません。
 
-`NPM_TOKEN` は `NODE_AUTH_TOKEN` としても渡す必要があります。`actions/setup-node` に
-`registry-url` を指定すると `NPM_CONFIG_USERCONFIG` が設定され、npm は changesets が書く
-`~/.npmrc` ではなくそちらを読むためです。渡し忘れると setup-node が入れたプレースホルダの
-まま publish され、**npm は認証失敗を 404 で返す**ので権限不足と見分けがつきません。
+#### npm への publish（Trusted Publishing）
 
-（0.1.0 はこの設定漏れに気づく前に手元から publish しました。トークンの種類が原因では
-ありません）
+npm 側は **npmjs.com → cron-explain-ja → Settings → Trusted publisher** で GitHub Actions を
+登録しておく必要があります。ここで指定したワークフロー以外からは publish できません。
+
+| 項目 | 値 |
+|---|---|
+| Organization or user | `buko106` |
+| Repository | `cron-explain-ja` |
+| Workflow filename | `release.yml` |
+| Environment | （空欄） |
+
+ワークフロー側の条件は 3 つです。
+
+- `permissions` に `id-token: write` を入れる。無いと npm CLI は OIDC を試さず通常の認証へ
+  落ちます
+- npm CLI を **11 系**（11.5.1 以上）にする。Node 22 同梱の npm は 10 系なので
+  `npm install --global "npm@^11.5.1"` で入れ替えています。`changeset publish` が呼ぶのは
+  `pnpm publish` ですが、pnpm は publish 本体を node と同じディレクトリの npm（無ければ
+  PATH 上の npm）へ委譲するため、pnpm 自体が OIDC 未対応でもこれで通ります。
+  12 系にはできません。pnpm 9 は自分専用のフラグ（`--no-git-checks`）もそのまま npm へ
+  渡しますが、npm 12 は未知のフラグを `EUNKNOWNCONFIG` で撥ねます（11 は警告のみ）。
+  12 に上げるなら、委譲前にフラグを落とす pnpm 10 以上へ先に揃えてください
+- `actions/setup-node` に `registry-url` を **指定しない**。指定すると
+  `//registry.npmjs.org/:_authToken=${NODE_AUTH_TOKEN}` を書いた `.npmrc` が
+  `NPM_CONFIG_USERCONFIG` になり、OIDC が効かなかったときプレースホルダのトークンで
+  publish されて、**認証失敗が 404 で返ってきます**。指定しなければ `ENEEDAUTH` で止まるので
+  原因が分かります
+
+公開リポジトリの公開パッケージなので、npm CLI が provenance も自動で付けます。
+Trusted publisher を登録すれば `NPM_TOKEN` の Secret は不要になるので、消してかまいません。
 
 **Settings → Actions → General → Workflow permissions** は「Read and write permissions」に
 しておく必要があります。changesets のアクションが Version PR を作れなくなるためです。

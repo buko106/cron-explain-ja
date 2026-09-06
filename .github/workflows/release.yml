@@ -4,6 +4,8 @@ on:
 permissions:
   contents: write
   pull-requests: write
+  # npm の Trusted Publishing（OIDC）で ID トークンを取るために必要。
+  # これが無いと npm CLI は OIDC を試さずに黙って通常の認証へ落ちる。
   id-token: write
 jobs:
   release:
@@ -19,8 +21,23 @@ jobs:
       - uses: pnpm/action-setup@v4
         with: { version: 9 }
       # @changesets/cli 3.x は module.enableCompileCache() を使うため Node 22.11+ が必要。
+      # registry-url は指定しない。指定すると setup-node が
+      # //registry.npmjs.org/:_authToken=${NODE_AUTH_TOKEN} を書いた .npmrc を
+      # userconfig に設定するので、OIDC が効かなかったときにプレースホルダの
+      # トークンで publish され、認証失敗が 404 になって原因を見失う。
+      # 既定のレジストリは registry.npmjs.org なので、publish 先は指定しなくても同じ。
       - uses: actions/setup-node@v4
-        with: { node-version: 22, cache: pnpm, registry-url: "https://registry.npmjs.org" }
+        with: { node-version: 22, cache: pnpm }
+      # Trusted Publishing は npm CLI 11.5.1 以上でしか動かず、Node 22 同梱の npm は
+      # 10 系なので入れ替える。changeset publish が呼ぶのは pnpm publish だが、
+      # pnpm は publish 本体を node と同じディレクトリの npm（無ければ PATH 上の npm）へ
+      # 委譲するため、ここで入れ替えた npm がそのまま使われる。pnpm 自体は OIDC を
+      # 実装していないので、この差し替えが OIDC を効かせる唯一の経路になる。
+      #
+      # 12 系にはできない。pnpm 9 は自分専用のフラグ（--no-git-checks）もそのまま npm へ
+      # 渡すが、npm 12 は未知のフラグを EUNKNOWNCONFIG で撥ねる（11 は警告のみで通す）。
+      # 12 に上げるなら、委譲前にフラグを落とす pnpm 10 以上へ先に揃えること。
+      - run: npm install --global "npm@^11.5.1"
       - run: pnpm install --frozen-lockfile
       # publish されるのは dist だけなので、prepublishOnly 任せにせず
       # ここで必ず作っておく（ライフサイクルが走らない経路への保険）。
@@ -40,10 +57,3 @@ jobs:
           # （repo スコープ）を使う。未設定でもリリースが止まらないよう
           # GITHUB_TOKEN にフォールバックする。
           github-token: ${{ secrets.RELEASE_TOKEN || secrets.GITHUB_TOKEN }}
-        env:
-          # setup-node の registry-url は NPM_CONFIG_USERCONFIG を設定するので、
-          # npm は changesets が書く ~/.npmrc ではなくそちらを読む。その .npmrc の
-          # トークンは NODE_AUTH_TOKEN を参照しており、未設定だとプレースホルダ
-          # （XXXXX-XXXXX-XXXXX-XXXXX）のままで publish が E404 になる。
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
-          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
