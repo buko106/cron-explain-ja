@@ -52,9 +52,15 @@ export const OPTIONS: Record<string, OptionDef> = {
   },
   tz: {
     type: "string",
-    description: "タイムゾーン（IANA 名 / local）。explain は併記のみ、next の既定は Asia/Tokyo",
+    description: "日本語側のタイムゾーン（IANA 名 / local）。cron 式は常に UTC",
+    default: "Asia/Tokyo",
     placeholder: "zone",
-    commands: ["explain", "next"],
+    commands: ["explain", "parse", "next"],
+  },
+  "show-tz": {
+    type: "boolean",
+    description: "文末にタイムゾーン名を併記する",
+    commands: ["explain"],
   },
   detailed: {
     type: "boolean",

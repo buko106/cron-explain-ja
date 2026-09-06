@@ -1,5 +1,5 @@
 import { validate } from "../../cron";
-import { ParseAmbiguityError } from "../../errors";
+import { CronTimeZoneError, ParseAmbiguityError } from "../../errors";
 import { parse } from "../../parse";
 import type { Ambiguity, ParseOptions, ParseResult } from "../../types";
 import type { CliArgs } from "../args";
@@ -14,6 +14,9 @@ import {
   reportError,
   reportNote,
   reportWarn,
+  resolveZone,
+  shiftToServer,
+  stringOption,
 } from "./shared";
 
 const FIELD_INDEX: Record<Ambiguity["field"], number> = {
@@ -28,6 +31,9 @@ const FIELD_INDEX: Record<Ambiguity["field"], number> = {
 export function parseOptions(args: CliArgs): ParseOptions {
   const options: ParseOptions = { defaultHour: intOption(args, "default-hour", 9) };
   if (boolOption(args, "allow-extensions")) options.allowExtensions = true;
+  const tz = stringOption(args, "tz");
+  // 解釈できない名前はライブラリに渡す前に exit 2 へ落とす
+  if (tz !== undefined) options.tz = resolveZone(tz);
   return options;
 }
 
@@ -44,8 +50,9 @@ function candidateHint(ambiguity: Ambiguity): string {
 
 /** 対話で曖昧な点を埋め、cron 式を組み立て直す */
 async function resolveInteractively(result: ParseResult, io: IO): Promise<string | null> {
-  if (result.expression === null) return null;
-  const fields = result.expression.split(" ");
+  if (result.localExpression === null) return null;
+  // 質問も答えも日本語側の時刻なので、書き換え前の式を編集する
+  const fields = result.localExpression.split(" ");
 
   for (const ambiguity of result.ambiguities) {
     const index = FIELD_INDEX[ambiguity.field];
@@ -84,6 +91,12 @@ export async function parseCommand(args: CliArgs, io: IO): Promise<number> {
     try {
       result = parse(input, strict && !wantsInteractive ? { ...options, strict: true } : options);
     } catch (error) {
+      if (error instanceof CronTimeZoneError) {
+        if (json && multiple) io.out(JSON.stringify({ input, error: error.message }));
+        else reportError(io, error.message);
+        code = Math.max(code, EXIT_INPUT);
+        continue;
+      }
       if (error instanceof ParseAmbiguityError) {
         if (json && multiple) {
           io.out(JSON.stringify({ input, error: error.message }));
@@ -114,7 +127,7 @@ export async function parseCommand(args: CliArgs, io: IO): Promise<number> {
         code = Math.max(code, EXIT_INPUT);
         continue;
       }
-      expression = resolved;
+      expression = shiftToServer(resolved, result.tz);
     }
 
     if (json) {
@@ -125,7 +138,7 @@ export async function parseCommand(args: CliArgs, io: IO): Promise<number> {
 
     io.out(expression);
     if (!quiet && !wantsInteractive) {
-      const fields = expression.split(" ");
+      const fields = (result.localExpression ?? expression).split(" ");
       for (const ambiguity of result.ambiguities) {
         const index = FIELD_INDEX[ambiguity.field];
         const chosen = index >= 0 ? fields[index] : undefined;

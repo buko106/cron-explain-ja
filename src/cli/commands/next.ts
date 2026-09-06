@@ -19,10 +19,9 @@ import {
   stringOption,
 } from "./shared";
 
-export function nextOptions(args: CliArgs, tz: string): NextOptions {
+export function nextOptions(args: CliArgs): NextOptions {
   const options: NextOptions = {
     count: intOption(args, "count", 3),
-    tz,
   };
   if (boolOption(args, "seconds")) options.seconds = true;
 
@@ -41,8 +40,9 @@ export function nextOptions(args: CliArgs, tz: string): NextOptions {
  * `cron-ja next`
  */
 export async function nextCommand(args: CliArgs, io: IO): Promise<number> {
+  // cron 式は UTC として解釈し、--tz は表示にだけ使う
   const tz = resolveZone(stringOption(args, "tz"));
-  const options = nextOptions(args, tz);
+  const options = nextOptions(args);
   const format = enumOption(args, "format", ["human", "iso", "unix"] as const, "human");
   const json = boolOption(args, "json");
   const quiet = boolOption(args, "quiet");
@@ -67,7 +67,7 @@ export async function nextCommand(args: CliArgs, io: IO): Promise<number> {
     }
 
     if (json) {
-      // 機械向けなので日時は UTC 正規化のまま。どのゾーンで数えたかは tz で示す
+      // 機械向けなので日時は UTC 正規化のまま。どのゾーンで表示したかは tz で示す
       const payload = { tz, next: dates.map((date) => date.toISOString()) };
       io.out(JSON.stringify(multiple ? { input, ...payload } : payload));
       continue;

@@ -47,23 +47,20 @@ jobs:
       - run: node -e "import(require('node:url').pathToFileURL('dist/index.js').href).then(() => console.log('esm ok'))"
       - run: node --input-type=commonjs -e "require('./dist/index.cjs'); console.log('cjs ok')"
       # 古い Node では Intl の挙動が違いうるが vitest は動かせないので、
-      # タイムゾーン解釈だけここでスモークする（既定の Asia/Tokyo と IANA 指定）
+      # タイムゾーンの変換だけここでスモークする
       - name: timezone smoke
         run: |
           node --input-type=commonjs -e "
-            const { next } = require('./dist/index.cjs');
-            const wall = (d, tz) => new Intl.DateTimeFormat('en-CA', { timeZone: tz,
-              hourCycle: 'h23', hour: '2-digit', minute: '2-digit' }).format(d);
-            const from = new Date('2026-06-14T00:00:00Z');
-            const [tokyo] = next('30 9 * * *', { from, count: 1 });
-            if (tokyo.toISOString() !== '2026-06-14T00:30:00.000Z') {
-              throw new Error('既定が Asia/Tokyo になっていない: ' + tokyo.toISOString());
-            }
-            for (const tz of ['UTC', 'America/New_York', 'Europe/London', 'Australia/Lord_Howe']) {
-              const [date] = next('30 9 * * *', { from, count: 1, tz });
-              if (wall(date, tz) !== '09:30') {
-                throw new Error(tz + ' の壁時計が 09:30 でない: ' + wall(date, tz));
+            const { explain, parse } = require('./dist/index.cjs');
+            const check = (actual, expected, label) => {
+              if (actual !== expected) {
+                throw new Error(label + ': ' + actual + ' (expected ' + expected + ')');
               }
-            }
+            };
+            check(parse('毎日午後1時').expression, '0 4 * * *', 'parse 既定(Asia/Tokyo) → UTC');
+            check(parse('毎日午後1時', { tz: 'UTC' }).expression, '0 13 * * *', 'parse tz=UTC');
+            check(explain('0 4 * * *'), '毎日午後1時', 'explain 既定(UTC → Asia/Tokyo)');
+            check(explain('0 9 * * *', { tz: 'UTC' }), '毎日午前9時', 'explain tz=UTC');
+            check(explain('0 20 * * 1'), '毎週火曜日の午前5時', 'explain 日またぎ');
             console.log('timezone ok');
           "

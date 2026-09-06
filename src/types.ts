@@ -57,12 +57,13 @@ export interface ExplainOptions extends ParserOptions {
   /** '12h': 「午後3時」 / '24h': 「15時」 */
   hour?: "12h" | "24h";
   /**
-   * cron 式が動くタイムゾーン。IANA のゾーン名か `'local'`。
+   * cron 式（UTC）を読み替えるタイムゾーン。IANA のゾーン名か `'local'`。既定は 'Asia/Tokyo'
    *
-   * `explain` では指定したときだけ末尾に「（Asia/Tokyo）」と併記する（既定では付けない）。
-   * `explainDetailed` では `next` の計算にも使う（未指定なら 'Asia/Tokyo'）。
+   * `'UTC'` を渡すと書き換えずにそのまま説明する。
    */
   tz?: string;
+  /** 文末に「（Asia/Tokyo）」とタイムゾーン名を併記する */
+  showTimeZone?: boolean;
   /** 曜日を「平日」「週末」に畳むか */
   collapseWeekdays?: boolean;
 }
@@ -78,8 +79,12 @@ export interface FieldExplanation {
 
 export interface Explanation {
   text: string;
-  /** 正規化済みの cron 式 */
+  /** 入力（UTC）を正規化した cron 式 */
   expression: string;
+  /** `tz` の壁時計に書き換えた cron 式。`fields` と `text` はこちらを説明している */
+  localExpression: string;
+  /** 説明に使ったタイムゾーン（IANA の正規名） */
+  tz: string;
   fields: {
     second?: FieldExplanation;
     minute: FieldExplanation;
@@ -144,7 +149,12 @@ export interface Ambiguity {
 }
 
 export interface ParseResult {
+  /** UTC のサーバー向けの cron 式 */
   expression: string | null;
+  /** `tz` の壁時計のままの cron 式。日本語が字面どおり指した時刻 */
+  localExpression: string | null;
+  /** 解釈に使ったタイムゾーン（IANA の正規名） */
+  tz: string;
   /** 0.0 - 1.0 */
   confidence: number;
   ambiguities: Ambiguity[];
@@ -161,6 +171,11 @@ export interface ParseOptions {
   timeOfDay?: Partial<Record<TimeOfDayWord, number>>;
   /** L / # / W の使用を許可する（false でも生成はするが note を付ける） */
   allowExtensions?: boolean;
+  /**
+   * 日本語をどのタイムゾーンの壁時計として読むか。IANA のゾーン名か `'local'`。
+   * 既定は 'Asia/Tokyo'。出力の cron 式は常に UTC
+   */
+  tz?: string;
 }
 
 /* ------------------------------------------------------------------ */
@@ -184,9 +199,4 @@ export interface NextOptions extends ParserOptions {
   from?: Date;
   /** 取得件数。既定は 3 */
   count?: number;
-  /**
-   * 壁時計を解釈するタイムゾーン。IANA のゾーン名（'Asia/Tokyo' 'America/New_York' …）か、
-   * 実行環境のゾーンを指す `'local'`。既定は 'Asia/Tokyo'
-   */
-  tz?: string;
 }

@@ -1,7 +1,21 @@
 import { describe, expect, it } from "vitest";
 import { explain, explainDetailed, parse, validate } from "../src/index";
-import type { ExplainOptions } from "../src/types";
+import type { ExplainOptions, Explanation, ParseOptions, ParseResult } from "../src/types";
 import { type ExplainFixture, loadFixtures, type ParseFixture } from "./helpers/fixtures";
+
+// このファイルは cron 式と日本語の対応そのものを見る。タイムゾーンの書き換えは
+// test/timezone.test.ts の担当なので、変換の起きない UTC を既定にして呼ぶ。
+function detailUtc(expression: string, options: ExplainOptions = {}): Explanation {
+  return explainDetailed(expression, { ...options, tz: "UTC" });
+}
+
+function explainUtc(expression: string, options: ExplainOptions = {}): string {
+  return explain(expression, { ...options, tz: "UTC" });
+}
+
+function parseUtc(text: string, options: ParseOptions = {}): ParseResult {
+  return parse(text, { ...options, tz: "UTC" });
+}
 
 const parseFixtures = loadFixtures<ParseFixture>("parse.jsonl").filter(
   (fixture) => fixture.expr !== null,
@@ -16,7 +30,7 @@ const explainFixtures = [
  * `0-6` と `*`、曜日の `7` と `0` のような表記の違いは吸収し、意味だけを比べる。
  */
 function signature(expression: string, options: ExplainOptions = {}): string {
-  const { fields } = explainDetailed(expression, options);
+  const { fields } = detailUtc(expression, options);
   return JSON.stringify([
     fields.minute.values,
     fields.hour.values,
@@ -28,11 +42,11 @@ function signature(expression: string, options: ExplainOptions = {}): string {
 
 describe("往復: parse → explain → parse", () => {
   it.each(parseFixtures.map((fixture) => fixture.text))("%s", (text) => {
-    const first = parse(text);
+    const first = parseUtc(text);
     expect(first.expression).not.toBeNull();
     if (first.expression === null) return;
 
-    const second = parse(explain(first.expression));
+    const second = parseUtc(explainUtc(first.expression));
     expect(second.expression).toBe(first.expression);
   });
 });
@@ -58,8 +72,8 @@ describe("往復: explain → parse", () => {
   ];
 
   it.each(targets)("%s", (expression, options) => {
-    const text = explain(expression, options);
-    const result = parse(text);
+    const text = explainUtc(expression, options);
+    const result = parseUtc(text);
     expect(result.expression).not.toBeNull();
     if (result.expression === null) return;
     expect(validate(result.expression).valid).toBe(true);
@@ -70,8 +84,8 @@ describe("往復: explain → parse", () => {
 
   it.each([{ hour: "24h" }, { style: "formal" }] as const)("%o でも意味が変わらない", (style) => {
     for (const [expression, options] of targets) {
-      const text = explain(expression, { ...options, ...style });
-      const result = parse(text);
+      const text = explainUtc(expression, { ...options, ...style });
+      const result = parseUtc(text);
       expect(result.expression, `${expression} → ${text}`).not.toBeNull();
       if (result.expression === null) continue;
       expect(signature(result.expression), `${expression} → ${text} → ${result.expression}`).toBe(

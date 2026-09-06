@@ -54,6 +54,12 @@ explain('0 0 1 1 *');             // '毎年1月1日の午前0時'
 
 不正な式は `CronSyntaxError` を throw する。
 
+#### タイムゾーンの前提
+
+**cron 式は UTC のサーバーで動くものとして扱い、日本語は `tz`（既定 `'Asia/Tokyo'`）の
+壁時計として読む。** `explain` は UTC → `tz`、`parse` は `tz` → UTC に書き換える。
+`tz: 'UTC'` を渡すと書き換えは起きない。詳細は §2.5。
+
 #### ExplainOptions
 
 ```ts
@@ -64,8 +70,10 @@ interface ExplainOptions {
   hour?: '12h' | '24h';
   /** 6フィールド（秒付き）として解釈 (default: false) */
   seconds?: boolean;
-  /** 指定時、末尾に '（Asia/Tokyo）' を付ける */
+  /** cron 式(UTC)を読み替えるゾーン。IANA 名 または 'local' (default: 'Asia/Tokyo') */
   tz?: string;
+  /** 文末に '（Asia/Tokyo）' とゾーン名を併記する (default: false) */
+  showTimeZone?: boolean;
   /** 曜日を「平日」「週末」に畳むか (default: true) */
   collapseWeekdays?: boolean;
 }
@@ -102,7 +110,9 @@ interface FieldExplanation {
 
 ```ts
 interface ParseResult {
-  expression: string | null;
+  expression: string | null;      // UTC のサーバー向け
+  localExpression: string | null; // tz の壁時計のまま
+  tz: string;                     // 解釈に使ったゾーン（IANA の正規名）
   confidence: number;             // 0.0 – 1.0
   ambiguities: Ambiguity[];
   notes: string[];
@@ -120,6 +130,8 @@ interface ParseOptions {
   defaultHour?: number;           // default: 9
   timeOfDay?: Partial<Record<TimeOfDayWord, number>>;
   allowExtensions?: boolean;      // default: false
+  /** 日本語をどのゾーンの壁時計として読むか (default: 'Asia/Tokyo') */
+  tz?: string;
 }
 ```
 
@@ -164,13 +176,11 @@ interface ValidationResult {
 interface NextOptions {
   from?: Date;                    // default: now
   count?: number;                 // default: 3
-  tz?: string;                    // IANA ゾーン名 または 'local'。default: 'Asia/Tokyo'
 }
 ```
 
-`tz` は壁時計を解釈するタイムゾーン。`'Asia/Tokyo'` `'America/New_York'` のような IANA の
-ゾーン名か、実行環境のゾーンを指す `'local'` を受け付ける。解釈できない名前は
-`CronTimeZoneError`。実行環境の `TZ` には依存しない（`'local'` を明示したときだけ従う）。
+cron 式は UTC として解釈する。返るのは絶対時刻（`Date`）なので、どのゾーンで表示するかは
+呼び出し側の裁量（CLI は `--tz` で表示する）。
 
 ### 1.7 エラー型
 
@@ -469,22 +479,45 @@ FieldAST → 文字列。`allowExtensions: false` かつ extensions 非空なら
 
 ### 2.4 next
 
+- cron 式は UTC として解釈する（実行環境の `TZ` には依存しない）
 - 分→時→日→月の順で次候補へジャンプ
 - 5 年先まで見つからなければ空配列
 - dom と dow 両指定は OR（Vixie cron 準拠）
 - `L` `#` `W` は v1 非対応 → 空配列 + validate warning
-- 探索は**壁時計の上を歩く**。暦の繰り上げは `Date.UTC` の純粋な計算で行い、
-  実際の瞬間に直すのは候補が確定したときだけにする（`Intl` は 1 件につき数回しか呼ばない）
-- 壁時計とタイムゾーンの対応は `src/cron/zone.ts` の `Clock` が持つ。`UTC` だけは
-  `Intl` を使わない実装に分けてある
-- 夏時間の境界は次のように決める（`Intl` だけで実装。ランタイム依存は足さない）
-  - 壁時計が存在しない（春の飛び）: **切り替え直後に寄せて 1 回動かす**。
-    New York の `30 2 * * *` は 2026-03-08 に 03:30 EDT で動く（Vixie cron / cron-parser と同じ）
-  - 壁時計が 2 回ある（秋の巻き戻し）: **早い方（切り替え前）で 1 回だけ**動かす。
-    New York の `30 1 * * *` は 2026-11-01 の 01:30 EDT だけで、01:30 EST では動かさない
-  - 後者は式によらず一律。Vixie cron / cron-parser は時が `*` の式に限り巻き戻した 1 時間を
-    もう一度動かすが、ここでは「1 つの壁時計は 1 回」という単純な規則に揃えた
-    （変えるなら `src/cron/next.ts` の探索ループを、重なりの区間だけ 2 周させる形にする）
+
+### 2.5 タイムゾーンの書き換え（`src/cron/shift.ts`）
+
+cron 式（UTC）と日本語（`tz` の壁時計）の間で、壁時計を固定のオフセットぶんだけずらす。
+`explain` は `+offset`、`parse` は `-offset` を掛ける。
+
+#### できること
+
+| 段階 | 扱い |
+|---|---|
+| 分 | 1 日の中の分（0-1439）に直してずらし、分と時に戻す |
+| 時 | 同上。`0-22/2` のような刻みは値の並びから組み直す（`*/2` に畳めるなら畳む） |
+| 日をまたぐ | 曜日は循環でずらす。日は 1 日ずらす |
+| 月 | 変えない |
+| 秒 | オフセットは必ず分単位なので変えない |
+
+#### できないこと（`CronTimeZoneError` で失敗させる）
+
+cron 式は「フィールドごとに独立した値の集合」しか表せないので、その形に収まらない
+組み合わせがある。近い式を黙って返すと半年ずれた予定を出すことになるため、失敗させる。
+
+| 場面 | 例（`Asia/Tokyo`） |
+|---|---|
+| 分の繰り上がりが時刻によって変わる | `0,30 4 * * *` を `+5:45` のゾーンへ |
+| 日をまたぐ時刻とまたがない時刻が混ざる | `0 9-17 * * 1-5`（18:00-翌02:00 になる） |
+| 日が 1 日ずれて月をまたぐ | `0 20 31 * *`、`0 20 * 1 *` |
+| 日がずれて `L` `#` `W` の意味が変わる | `0 20 L * *` |
+| ゾーンに夏時間がある | `America/New_York` |
+
+日をずらせるのは **1-28 日の範囲に収まるとき**だけ。29-31 日は月によって存在したりしなかったり
+するため、ずらすと意味が変わる（`0 20 28 * *` の翌日は 2 月では 3 月 1 日になる）。
+
+夏時間のあるゾーンは、そもそも 1 つの cron 式に落ちない（冬と夏で時刻が変わる）。
+オフセットは 1 か月ごとに 12 点サンプルして、すべて同じであることを確かめる。
 
 ---
 
@@ -625,7 +658,8 @@ Options:
   --style <casual|formal>     default: casual
   --hour <12h|24h>            default: 12h
   --seconds
-  --tz <zone>
+  --tz <zone>                 IANA ゾーン名 または local。default: Asia/Tokyo
+  --show-tz                   文末にゾーン名を併記
   --detailed                  フィールド別内訳と次回3回を表示
 ```
 
@@ -709,19 +743,19 @@ warn: 2月30日は存在しないため、このジョブは実行されませ�
 Options:
   -n, --count <n>             default: 3
   --from <iso-datetime>       default: 現在時刻
-  --tz <zone>                 IANA ゾーン名 または local。default: Asia/Tokyo
+  --tz <zone>                 表示に使うゾーン。default: Asia/Tokyo
   --format <human|iso|unix>   default: human
 ```
 
-`--format` の出力はいずれも `--tz` のゾーンで表す。
+式は UTC として数え、`--tz` は表示だけを変える。`--format` の出力はいずれも `--tz` のゾーンで表す。
 
 | format | 例 |
 |---|---|
-| `human` | `2026-09-07 (月) 09:00`（ゾーンの壁時計） |
-| `iso` | `2026-09-07T09:00:00+09:00`（オフセット付き。オフセット 0 は `Z`） |
-| `unix` | `1757203200`（ゾーンに依存しない） |
+| `human` | `2026-09-07 (月) 13:00`（ゾーンの壁時計） |
+| `iso` | `2026-09-07T13:00:00+09:00`（オフセット付き。オフセット 0 は `Z`） |
+| `unix` | `1757214000`（ゾーンに依存しない） |
 
-`--json` の日時は `toISOString()` のまま（UTC 正規化）で、どのゾーンで数えたかは `tz`
+`--json` の日時は `toISOString()` のまま（UTC 正規化）で、どのゾーンで表示したかは `tz`
 フィールドで示す。
 
 ```
@@ -911,29 +945,30 @@ const OPTIONS = {
 
 #### タイムゾーンを開いたときに決めたこと
 
-- **既定のタイムゾーンは `Asia/Tokyo`**。日本語の cron 説明ライブラリなので、
-  実行環境の `TZ`（CI や本番コンテナではたいてい UTC）に結果が左右される方が事故が多い。
-  実行環境のゾーンで見たいときは `tz: 'local'` を明示する
-- `NextOptions.tz` は `'UTC' | 'local'` から `string` に広げる。`'UTC'` は IANA 名でもあるので
-  既存の指定はそのまま動き、`'local'` だけを特別扱いの語として残す。
-  `timeZone` の新設や `Clock` の公開は 0.x の API を太らせるので採らない
-- **`tz` の意味は「この cron 式が動くタイムゾーン」の 1 つに揃える**。
-  `explain` はそれを併記に使い、`next` は時計に使う。CLI の `--tz` も 1 つの意味になった
-- ただし **`ExplainOptions.tz` に既定値は入れない**。既定を入れると `explain('0 9 * * *')` が
-  「毎日午前9時（Asia/Tokyo）」になり、実在 crontab から起こしたフィクスチャ 209 件が
-  全部書き換えになる。併記は明示したときだけ
-- `explainDetailed` の `next` は `tz` で計算する。併記だけして次回は別ゾーンで数える、
-  という食い違いを残さない
+- **cron 式は UTC のサーバーで動くものとして扱い、日本語は `tz`（既定 `Asia/Tokyo`）の
+  壁時計として読む。** 「日本語で書いた予定を UTC のサーバーの crontab に貼る」
+  「UTC の crontab を日本時間で読む」の 2 つが、このライブラリの主な使い道だから。
+  サーバー側は固定で、指定できるのは日本語側のゾーンだけ
+- `tz` の意味は「日本語側のゾーン」の 1 つに揃える。`explain` `parse` `next`（表示）で
+  同じ意味になる。以前の `ExplainOptions.tz`（併記だけの自由文字列）は `showTimeZone` に分けた
+- **`explain` の併記に既定値は入れない。** 既定で「（Asia/Tokyo）」が付くと、実在 crontab から
+  起こしたフィクスチャ 209 件が全部書き換えになる。併記は `showTimeZone` を明示したときだけ
+- **フィクスチャは `tz: 'UTC'`（書き換えなし）で回す。** cron 式と日本語の対応そのものと、
+  タイムゾーンの書き換えは別の関心。混ぜると 209 件の期待値が「+9 時間した文」になり、
+  人手でレビューした意味が薄れる
+- **書き換えられない式はエラーにする**（§2.5）。近い式を warn 付きで返す案もあったが、
+  警告を読み飛ばすと半年ずれた予定が黙って通る。cron 式は貼ったあと誰も見ない
 - ゾーン名の検証と正規化は `Intl.DateTimeFormat(...).resolvedOptions().timeZone` に任せる。
-  実行環境が知っている名前が常に正になり、`asia/tokyo` や `JST` のような別名も揃う。
-  ゾーン一覧を自前で持つと ICU の版とずれる
-- `--format=iso` はオフセット付き（`2026-09-07T09:00:00+09:00`）に変える。
+  実行環境が知っている名前が常に正になり、`asia/tokyo` や `JST` のような別名も揃う
+- `next` は UTC 解釈に固定した。返すのは絶対時刻なので、表示のゾーンは CLI の関心にした
+- `--format=iso` はオフセット付き（`2026-09-07T13:00:00+09:00`）に変える。
   ゾーンを指定したのに `Z` で出るのは分かりにくい。オフセット 0 は `Z` のまま
-- 夏時間の境界の扱いは §2.4 に書いた
 
 ### 残っているもの
 
 - `explain` 文末の「に実行」オプションの要否
+- サーバー側のゾーンも指定できるようにするか（いまは UTC 固定。JST のサーバーで動く
+  crontab をそのまま読みたい場合は `--tz UTC` で書き換えを止める必要があり、名前が直感的でない）
 - `next` の探索上限（現在は 5 年、超えると見つかった分だけ返す）を設定可能にするか
 - Quartz の `LW`（月末最後の平日）が未対応。`L` `L-3` `15W` は解釈できるが `LW` は
   `FieldAST` に対応する種別がない（§2.1）。実在の crontab では稀なため見送った

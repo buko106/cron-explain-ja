@@ -12,14 +12,24 @@ export {
 } from "./fields";
 export { next } from "./next";
 export { type ParsedExpression, parseExpression } from "./parser";
+export { shiftAst, shiftExpression } from "./shift";
 export { validate } from "./validate";
-export { coversAll, expandField, formatField, hasExtension, isAny, toRanges } from "./values";
 export {
-  type Clock,
-  clockFor,
+  coversAll,
+  expandField,
+  formatExpression,
+  formatField,
+  hasExtension,
+  isAny,
+  toRanges,
+} from "./values";
+export {
   DEFAULT_TIME_ZONE,
+  fixedOffsetMinutes,
   LOCAL_TIME_ZONE,
   offsetMinutes,
   resolveTimeZone,
+  SERVER_TIME_ZONE,
   type WallClock,
+  wallClock,
 } from "./zone";

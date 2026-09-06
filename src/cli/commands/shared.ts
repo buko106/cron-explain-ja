@@ -1,4 +1,11 @@
-import { clockFor, offsetMinutes, resolveTimeZone } from "../../cron";
+import {
+  fixedOffsetMinutes,
+  offsetMinutes,
+  resolveTimeZone,
+  SERVER_TIME_ZONE,
+  shiftExpression,
+  wallClock,
+} from "../../cron";
 import type { CliArgs } from "../args";
 import { CliUsageError } from "../args";
 import type { IO } from "../io";
@@ -106,10 +113,20 @@ export function resolveZone(tz: string | undefined): string {
 }
 
 /**
+ * `tz` の壁時計で書かれた cron 式を、UTC のサーバー向けに書き換える。
+ *
+ * @throws {CronTimeZoneError} UTC の cron 式で表せない場合
+ */
+export function shiftToServer(expression: string, tz: string): string {
+  if (tz === SERVER_TIME_ZONE) return expression;
+  return shiftExpression(expression, -fixedOffsetMinutes(tz), tz);
+}
+
+/**
  * 「2026-09-07 (月) 09:00」。壁時計は `tz`（解決済みのゾーン名）で読む。
  */
 export function formatDateHuman(date: Date, options: { tz: string; seconds?: boolean }): string {
-  const wall = clockFor(options.tz).parts(date);
+  const wall = wallClock(options.tz, date);
   const weekday = DOW_SHORT[wall.dayOfWeek] ?? "";
   const time =
     options.seconds === true
@@ -122,7 +139,7 @@ export function formatDateHuman(date: Date, options: { tz: string; seconds?: boo
  * 「2026-09-07T09:00:00+09:00」。オフセット 0 は `Z` で表す。
  */
 export function formatDateIso(date: Date, tz: string): string {
-  const wall = clockFor(tz).parts(date);
+  const wall = wallClock(tz, date);
   const offset = offsetMinutes(tz, date);
   const absolute = Math.abs(offset);
   const zone =

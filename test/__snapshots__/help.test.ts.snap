@@ -9,7 +9,8 @@ Options:
       --style <casual|formal>出力スタイル（既定: casual）
       --hour <12h|24h>      時刻の表記（既定: 12h）
       --seconds             6 フィールド（秒付き）として解釈する
-      --tz <zone>           タイムゾーン（IANA 名 / local）。explain は併記のみ、next の既定は Asia/Tokyo
+      --tz <zone>           日本語側のタイムゾーン（IANA 名 / local）。cron 式は常に UTC（既定: Asia/Tokyo）
+      --show-tz             文末にタイムゾーン名を併記する
       --detailed            フィールド別の内訳と次回3回を表示する
 
 Global options:
@@ -29,7 +30,7 @@ exports[`ヘルプ（スナップショット） > next 1`] = `
 
 Options:
       --seconds             6 フィールド（秒付き）として解釈する
-      --tz <zone>           タイムゾーン（IANA 名 / local）。explain は併記のみ、next の既定は Asia/Tokyo
+      --tz <zone>           日本語側のタイムゾーン（IANA 名 / local）。cron 式は常に UTC（既定: Asia/Tokyo）
   -n, --count <n>           表示件数（既定: 3）
       --from <iso-datetime> 起点の日時（ISO 8601）
       --format <human|iso|unix>出力形式（既定: human）
@@ -50,6 +51,7 @@ exports[`ヘルプ（スナップショット） > parse 1`] = `
 日本語をcron式にする
 
 Options:
+      --tz <zone>           日本語側のタイムゾーン（IANA 名 / local）。cron 式は常に UTC（既定: Asia/Tokyo）
       --strict              曖昧なら失敗する（exit 3）
       --default-hour <n>    時刻が読み取れないときに使う時（既定: 9）
       --allow-extensions    L / # / W の使用を許可する

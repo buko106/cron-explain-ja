@@ -1,10 +1,17 @@
 import { CronTimeZoneError } from "../errors";
 
-/** 既定のタイムゾーン。実行環境のローカル時刻には依存しない */
+/**
+ * 自然言語（日本語）側の既定のタイムゾーン。
+ *
+ * cron 式は常に UTC のサーバーで動くものとして扱い、日本語はこのゾーンの壁時計として読む。
+ */
 export const DEFAULT_TIME_ZONE = "Asia/Tokyo";
 
 /** 実行環境のタイムゾーンを指す特別な値 */
 export const LOCAL_TIME_ZONE = "local";
+
+/** cron 式が動くサーバーのタイムゾーン。固定 */
+export const SERVER_TIME_ZONE = "UTC";
 
 /**
  * ある瞬間をタイムゾーンで読んだ壁時計。
@@ -18,25 +25,6 @@ export interface WallClock {
   second: number;
   dayOfWeek: number;
 }
-
-/**
- * 壁時計と瞬間を相互に変換する。
- */
-export interface Clock {
-  /** その瞬間の壁時計 */
-  parts(date: Date): WallClock;
-  /** 壁時計が指す瞬間。夏時間の扱いは {@link zoneMake} を参照 */
-  make(
-    year: number,
-    month: number,
-    day: number,
-    hour: number,
-    minute: number,
-    second: number,
-  ): Date;
-}
-
-const DAY_MS = 86_400_000;
 
 const WEEKDAYS: Record<string, number> = {
   Sun: 0,
@@ -87,7 +75,8 @@ export function resolveTimeZone(tz?: string): string {
   }
 }
 
-function zoneParts(timeZone: string, date: Date): WallClock {
+/** その瞬間の壁時計 */
+export function wallClock(timeZone: string, date: Date): WallClock {
   const found: Record<string, string> = {};
   for (const part of formatter(timeZone).formatToParts(date)) {
     if (part.type !== "literal") found[part.type] = part.value;
@@ -104,78 +93,47 @@ function zoneParts(timeZone: string, date: Date): WallClock {
   };
 }
 
-/** その瞬間のゾーンオフセット(ms)。壁時計を UTC とみなした値 - 実時刻 */
-function zoneOffset(timeZone: string, time: number): number {
-  const parts = zoneParts(timeZone, new Date(time));
-  return (
-    Date.UTC(parts.year, parts.month - 1, parts.day, parts.hour, parts.minute, parts.second) -
-    Math.floor(time / 1000) * 1000
-  );
-}
-
-/**
- * 壁時計 → 瞬間。夏時間の境界では次のように決める。
- *
- * - 壁時計が 2 回ある（秋の巻き戻し）: 早い方を返す
- * - 壁時計が存在しない（春の飛び）: 切り替え直後に寄せる（Vixie cron / cron-parser と同じ）
- *
- * 前後 1 日のオフセットから候補を作って往復検証する方法は ECMA-402 と同じ。
- */
-function zoneMake(
-  timeZone: string,
-  year: number,
-  month: number,
-  day: number,
-  hour: number,
-  minute: number,
-  second: number,
-): Date {
-  const guess = Date.UTC(year, month - 1, day, hour, minute, second);
-  const before = zoneOffset(timeZone, guess - DAY_MS);
-  const after = zoneOffset(timeZone, guess + DAY_MS);
-  // 前後 1 日でオフセットが同じなら切り替えは挟まっていない（ほぼ全てのケース）
-  if (before === after) return new Date(guess - before);
-
-  for (const candidate of [guess - before, guess - after].sort((a, b) => a - b)) {
-    // 壁時計が要求どおりに戻る候補だけが実在する。重なりでは早い方を採る
-    if (zoneOffset(timeZone, candidate) === guess - candidate) return new Date(candidate);
-  }
-  // どちらも戻らない = その壁時計は存在しない。切り替え前のオフセットで読むと直後に落ちる
-  return new Date(guess - before);
-}
-
-const utcClock: Clock = {
-  parts: (date) => ({
-    year: date.getUTCFullYear(),
-    month: date.getUTCMonth() + 1,
-    day: date.getUTCDate(),
-    hour: date.getUTCHours(),
-    minute: date.getUTCMinutes(),
-    second: date.getUTCSeconds(),
-    dayOfWeek: date.getUTCDay(),
-  }),
-  make: (year, month, day, hour, minute, second) =>
-    new Date(Date.UTC(year, month - 1, day, hour, minute, second, 0)),
-};
-
-const clocks = new Map<string, Clock>([["UTC", utcClock]]);
-
-/**
- * 解決済みのゾーン名に対する {@link Clock} を返す。
- */
-export function clockFor(timeZone: string): Clock {
-  const cached = clocks.get(timeZone);
-  if (cached !== undefined) return cached;
-  const created: Clock = {
-    parts: (date) => zoneParts(timeZone, date),
-    make: (year, month, day, hour, minute, second) =>
-      zoneMake(timeZone, year, month, day, hour, minute, second),
-  };
-  clocks.set(timeZone, created);
-  return created;
-}
-
 /** その瞬間のゾーンオフセット(分)。UTC より東が正 */
 export function offsetMinutes(timeZone: string, date: Date): number {
-  return zoneOffset(timeZone, date.getTime()) / 60_000;
+  const parts = wallClock(timeZone, date);
+  const asUtc = Date.UTC(
+    parts.year,
+    parts.month - 1,
+    parts.day,
+    parts.hour,
+    parts.minute,
+    parts.second,
+  );
+  return (asUtc - Math.floor(date.getTime() / 1000) * 1000) / 60_000;
+}
+
+const fixedOffsets = new Map<string, number>();
+
+/**
+ * 年間を通して変わらないゾーンオフセット(分)を返す。
+ *
+ * cron 式の書き換えは固定のオフセットでしか行えないため、夏時間のあるゾーンは
+ * ここで弾く。1 か月ごとに 12 点サンプルして、すべて同じであることを確かめる。
+ *
+ * @throws {CronTimeZoneError} 年内でオフセットが変わる（＝夏時間がある）場合
+ */
+export function fixedOffsetMinutes(timeZone: string, reference: Date = new Date()): number {
+  const year = reference.getUTCFullYear();
+  const key = `${timeZone}@${year}`;
+  const cached = fixedOffsets.get(key);
+  if (cached !== undefined) return cached;
+
+  const offsets = new Set<number>();
+  for (let month = 0; month < 12; month += 1) {
+    offsets.add(offsetMinutes(timeZone, new Date(Date.UTC(year, month, 15, 12))));
+  }
+  const [offset] = [...offsets];
+  if (offsets.size > 1 || offset === undefined) {
+    throw new CronTimeZoneError(
+      `${timeZone} は ${year} 年に夏時間があるため、cron 式を固定のオフセットに書き換えられません`,
+      timeZone,
+    );
+  }
+  fixedOffsets.set(key, offset);
+  return offset;
 }
