@@ -1,5 +1,52 @@
 # cron-explain-ja
 
+## 1.0.0
+
+### Major Changes
+
+- 30b67db: 1.0.0: 公開 API を凍結する
+  
+  0.2.0 からの破壊的変更はない。動く範囲は同じで、**どこまでを約束するかを決めた**リリース。
+  
+  保証するもの:
+  
+  - `explain` / `explainDetailed` / `parse` / `validate` / `next` の引数とオプション
+  - `Explanation` / `ParseResult` / `ValidationResult` のフィールドの型と意味
+  - `CronSyntaxError` / `CronTimeZoneError` / `ParseAmbiguityError`
+  - CLI のサブコマンド、オプション名、終了コード、stdout に出る内容
+  
+  対象外にするもの（変わっても major は上げない）:
+  
+  - 出力される日本語の言い回しと、stderr の note / warn の文面
+  - `ParseResult.tokens`（`Token` / `TokenType`）。デバッグ用で、パーサの改良に伴って変わる
+  - `FieldAST` の `kind` の顔ぶれ。Quartz の `LW` など未対応の構文を後から足せるようにする
+  - `confidence` の具体的な値
+  
+  判断の根拠は DESIGN.md §6「1.0 の API 凍結で決めたこと」に、約束の一覧は README
+  「互換性」に書いた。
+
+### Patch Changes
+
+- 30b67db: npm のページに出るメタ情報を足した
+  
+  `author` / `homepage`（デモページ）/ `bugs`（issue の URL）を `package.json` に追加し、
+  README に npm と CI のバッジを置いた。公開物の中身は変わらない。
+- 30b67db: 書き換えられない式に当たったとき、CLI が逃げ道を案内するようにした
+  
+  `cron-ja explain "0 9-17 * * 1-5"` のように、実在の crontab 行をそのまま渡すと
+  タイムゾーンの書き換えに失敗することがある（実在 crontab のフィクスチャ 167 件のうち 6 件）。
+  これまではエラーだけで終わっていたため、`--tz UTC` を知らないと行き止まりだった。
+  書き換えに失敗したときだけ、note を 1 回出す。
+  
+  ```
+  $ cron-ja explain "0 9-17 * * 1-5"
+  error: Asia/Tokyo（時差 +9:00）では日付をまたぐ時刻とまたがない時刻が混ざるため、cron 式に書き換えられません
+  note: --tz UTC を付けると書き換えを止められます
+  ```
+  
+  あわせて 1.0.0 に向けた互換性の約束を README に書き、`ParseResult.tokens`
+  （`Token` / `TokenType`）が semver の対象外であることを型のドキュメントにも明記した。
+
 ## 0.2.0
 
 ### Minor Changes
