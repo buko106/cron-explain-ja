@@ -3,6 +3,7 @@ import {
   DOW_SPEC,
   expandField,
   type FieldSpec,
+  formatExpression,
   formatField,
   HOUR_SPEC,
   hasExtension,
@@ -10,11 +11,12 @@ import {
   MONTH_SPEC,
   next,
   parseExpression,
+  resolveTimeZone,
   SECOND_SPEC,
+  shiftAst,
   validate,
 } from "../cron";
 import type {
-  CronAST,
   ExplainOptions,
   Explanation,
   FieldAST,
@@ -47,16 +49,22 @@ function parserOptions(options: ExplainOptions): ParserOptions {
 /**
  * cron 式を 1 文の日本語に変換する。
  *
+ * 式は UTC のサーバーで動くものとして読み、`options.tz`（既定 `'Asia/Tokyo'`）の
+ * 壁時計に直してから日本語にする。
+ *
  * ```ts
- * explain('0 9 * * 1-5'); // '平日の午前9時'
+ * explain('0 4 * * 1-5'); // '平日の午後1時'（UTC 04:00 = JST 13:00）
+ * explain('0 9 * * 1-5', { tz: 'UTC' }); // '平日の午前9時'（変換しない）
  * ```
  *
  * @throws {CronSyntaxError} 式が不正な場合
+ * @throws {CronTimeZoneError} `tz` を解釈できない、または cron 式に書き換えられない場合
  */
 export function explain(expression: string, options: ExplainOptions = {}): string {
   const parsed = parseExpression(expression, parserOptions(options));
-  const text = compose(parsed.ast, resolve(options));
-  return options.tz === undefined || options.tz === "" ? text : `${text}（${options.tz}）`;
+  const timeZone = resolveTimeZone(options.tz);
+  const text = compose(shiftAst(parsed.ast, timeZone, "toLocal"), resolve(options));
+  return options.showTimeZone === true ? `${text}（${timeZone}）` : text;
 }
 
 function kindOf(ast: FieldAST): FieldExplanation["kind"] {
@@ -87,66 +95,79 @@ function explainField(raw: string, ast: FieldAST, spec: FieldSpec, text: string)
   };
 }
 
-/** 正規化された cron 式を組み立てる */
-export function formatExpression(ast: CronAST): string {
-  const fields = [ast.minute, ast.hour, ast.dayOfMonth, ast.month, ast.dayOfWeek].map(formatField);
-  if (ast.seconds !== undefined) fields.unshift(formatField(ast.seconds));
-  return fields.join(" ");
-}
-
 /**
  * cron 式をフィールド別の内訳・注意書き・次回実行日時つきで説明する。
+ *
+ * `fields` は `options.tz` の壁時計に直したあとの値を説明する（`localExpression` と対応）。
+ * `expression` は入力（UTC）を正規化したもの、`next` は UTC として解釈した絶対時刻。
+ *
+ * @throws {CronSyntaxError} 式が不正な場合
+ * @throws {CronTimeZoneError} `tz` を解釈できない、または cron 式に書き換えられない場合
  */
 export function explainDetailed(expression: string, options: ExplainOptions = {}): Explanation {
   const parsed = parseExpression(expression, parserOptions(options));
   const composeOptions = resolve(options);
-  const ast = parsed.ast;
+  const timeZone = resolveTimeZone(options.tz);
+  const ast = shiftAst(parsed.ast, timeZone, "toLocal");
 
-  const normalized = formatExpression(ast);
+  const normalized = formatExpression(parsed.ast);
+  const localized = ast === parsed.ast ? normalized : formatExpression(ast);
+  // 書き換わったフィールドだけ raw を差し替える。触っていないフィールドは
+  // 入力の字面（JAN や MON-FRI）をそのまま見せる
+  const raw = (field: keyof typeof parsed.raw, before: FieldAST, after: FieldAST): string =>
+    before === after ? (parsed.raw[field] ?? formatField(after)) : formatField(after);
   const dowOptions = { weekly: false, collapse: composeOptions.collapseWeekdays };
 
   const fields: Explanation["fields"] = {
     minute: explainField(
-      parsed.raw.minute,
+      raw("minute", parsed.ast.minute, ast.minute),
       ast.minute,
       MINUTE_SPEC,
       describeMinuteField(ast.minute),
     ),
     hour: explainField(
-      parsed.raw.hour,
+      raw("hour", parsed.ast.hour, ast.hour),
       ast.hour,
       HOUR_SPEC,
       describeHourField(ast.hour, composeOptions),
     ),
     dayOfMonth: explainField(
-      parsed.raw.dayOfMonth,
+      raw("dayOfMonth", parsed.ast.dayOfMonth, ast.dayOfMonth),
       ast.dayOfMonth,
       DOM_SPEC,
       describeDayOfMonthField(ast.dayOfMonth),
     ),
-    month: explainField(parsed.raw.month, ast.month, MONTH_SPEC, describeMonthField(ast.month)),
+    month: explainField(
+      raw("month", parsed.ast.month, ast.month),
+      ast.month,
+      MONTH_SPEC,
+      describeMonthField(ast.month),
+    ),
     dayOfWeek: explainField(
-      parsed.raw.dayOfWeek,
+      raw("dayOfWeek", parsed.ast.dayOfWeek, ast.dayOfWeek),
       ast.dayOfWeek,
       DOW_SPEC,
       describeDayOfWeekField(ast.dayOfWeek, dowOptions),
     ),
   };
-  if (ast.seconds !== undefined && parsed.raw.seconds !== undefined) {
+  if (ast.seconds !== undefined) {
     fields.second = explainField(
-      parsed.raw.seconds,
+      raw("seconds", parsed.ast.seconds ?? ast.seconds, ast.seconds),
       ast.seconds,
       SECOND_SPEC,
       describeSecondField(ast.seconds),
     );
   }
 
-  const text = explain(expression, options);
+  const composed = compose(ast, composeOptions);
+  const text = options.showTimeZone === true ? `${composed}（${timeZone}）` : composed;
   const { warnings } = validate(expression, parserOptions(options));
 
   return {
     text,
     expression: normalized,
+    localExpression: localized,
+    tz: timeZone,
     fields,
     extensions: parsed.extensions,
     notes: warnings,

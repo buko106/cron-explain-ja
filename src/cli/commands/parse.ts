@@ -1,5 +1,5 @@
-import { validate } from "../../cron";
-import { ParseAmbiguityError } from "../../errors";
+import { shiftExpression, validate } from "../../cron";
+import { CronTimeZoneError, ParseAmbiguityError } from "../../errors";
 import { parse } from "../../parse";
 import type { Ambiguity, ParseOptions, ParseResult } from "../../types";
 import type { CliArgs } from "../args";
@@ -14,6 +14,8 @@ import {
   reportError,
   reportNote,
   reportWarn,
+  resolveZone,
+  stringOption,
 } from "./shared";
 
 const FIELD_INDEX: Record<Ambiguity["field"], number> = {
@@ -28,6 +30,9 @@ const FIELD_INDEX: Record<Ambiguity["field"], number> = {
 export function parseOptions(args: CliArgs): ParseOptions {
   const options: ParseOptions = { defaultHour: intOption(args, "default-hour", 9) };
   if (boolOption(args, "allow-extensions")) options.allowExtensions = true;
+  const tz = stringOption(args, "tz");
+  // 解釈できない名前はライブラリに渡す前に exit 2 へ落とす
+  if (tz !== undefined) options.tz = resolveZone(tz);
   return options;
 }
 
@@ -44,8 +49,9 @@ function candidateHint(ambiguity: Ambiguity): string {
 
 /** 対話で曖昧な点を埋め、cron 式を組み立て直す */
 async function resolveInteractively(result: ParseResult, io: IO): Promise<string | null> {
-  if (result.expression === null) return null;
-  const fields = result.expression.split(" ");
+  if (result.localExpression === null) return null;
+  // 質問も答えも日本語側の時刻なので、書き換え前の式を編集する
+  const fields = result.localExpression.split(" ");
 
   for (const ambiguity of result.ambiguities) {
     const index = FIELD_INDEX[ambiguity.field];
@@ -84,6 +90,12 @@ export async function parseCommand(args: CliArgs, io: IO): Promise<number> {
     try {
       result = parse(input, strict && !wantsInteractive ? { ...options, strict: true } : options);
     } catch (error) {
+      if (error instanceof CronTimeZoneError) {
+        if (json && multiple) io.out(JSON.stringify({ input, error: error.message }));
+        else reportError(io, error.message);
+        code = Math.max(code, EXIT_INPUT);
+        continue;
+      }
       if (error instanceof ParseAmbiguityError) {
         if (json && multiple) {
           io.out(JSON.stringify({ input, error: error.message }));
@@ -97,7 +109,8 @@ export async function parseCommand(args: CliArgs, io: IO): Promise<number> {
       throw error;
     }
 
-    if (result.expression === null) {
+    // expression と localExpression は必ず揃って null になる（時間表現なし）
+    if (result.expression === null || result.localExpression === null) {
       if (json && multiple) {
         io.out(JSON.stringify({ input, error: "時間表現が見つかりません" }));
       } else {
@@ -108,24 +121,34 @@ export async function parseCommand(args: CliArgs, io: IO): Promise<number> {
     }
 
     let expression = result.expression;
+    let localExpression = result.localExpression;
     if (wantsInteractive && result.ambiguities.length > 0) {
       const resolved = await resolveInteractively(result, io);
       if (resolved === null) {
         code = Math.max(code, EXIT_INPUT);
         continue;
       }
-      expression = resolved;
+      try {
+        // 答えは日本語側の時刻なので、ここで UTC へ書き換える
+        expression = shiftExpression(resolved, result.tz, "toServer");
+      } catch (error) {
+        if (!(error instanceof CronTimeZoneError)) throw error;
+        reportError(io, error.message);
+        code = Math.max(code, EXIT_INPUT);
+        continue;
+      }
+      localExpression = resolved;
     }
 
     if (json) {
-      const payload = { ...result, expression };
+      const payload = { ...result, expression, localExpression };
       io.out(JSON.stringify(multiple ? { input, ...payload } : payload));
       continue;
     }
 
     io.out(expression);
     if (!quiet && !wantsInteractive) {
-      const fields = expression.split(" ");
+      const fields = localExpression.split(" ");
       for (const ambiguity of result.ambiguities) {
         const index = FIELD_INDEX[ambiguity.field];
         const chosen = index >= 0 ? fields[index] : undefined;

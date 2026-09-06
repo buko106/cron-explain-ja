@@ -60,8 +60,8 @@ describe("プロパティ: cron パーサはクラッシュしない", () => {
             for (const dow of dows) {
               const expression = `${minute} ${hour} ${dom} ${month} ${dow}`;
               expect(validate(expression).valid, expression).toBe(true);
-              expect(typeof explain(expression), expression).toBe("string");
-              expect(explain(expression), expression).not.toBe("");
+              expect(typeof explain(expression, { tz: "UTC" }), expression).toBe("string");
+              expect(explain(expression, { tz: "UTC" }), expression).not.toBe("");
               expect(Array.isArray(next(expression, { count: 1 })), expression).toBe(true);
               count += 1;
             }
@@ -83,7 +83,7 @@ describe("組み合わせ: 日本語表現", () => {
       for (const day of days) {
         for (const freq of freqs) {
           const text = `${freq}${day}${time}`;
-          const result = parse(text);
+          const result = parse(text, { tz: "UTC" });
           expect(result.confidence, text).toBeGreaterThanOrEqual(0);
           expect(result.confidence, text).toBeLessThanOrEqual(1);
           expect(result.expression, text).not.toBeNull();
@@ -101,7 +101,7 @@ describe("プロパティ: 日本語パーサはクラッシュしない", () =>
     const random = createRandom(42);
     for (let i = 0; i < 3000; i++) {
       const input = randomString(random, JA_CHARS, 20);
-      const result = parse(input);
+      const result = parse(input, { tz: "UTC" });
       expect(result.confidence, input).toBeGreaterThanOrEqual(0);
       expect(result.confidence, input).toBeLessThanOrEqual(1);
       if (result.expression !== null) {

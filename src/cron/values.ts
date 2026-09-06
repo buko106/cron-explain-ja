@@ -1,4 +1,4 @@
-import type { FieldAST } from "../types";
+import type { CronAST, FieldAST } from "../types";
 import type { FieldSpec } from "./fields";
 
 /** 拡張構文（L / # / W / ?）を含むか */
@@ -141,4 +141,11 @@ export function toRanges(values: number[]): Array<[number, number]> {
     }
   }
   return ranges;
+}
+
+/** 構文木を正規化された cron 式へ戻す */
+export function formatExpression(ast: CronAST): string {
+  const fields = [ast.minute, ast.hour, ast.dayOfMonth, ast.month, ast.dayOfWeek].map(formatField);
+  if (ast.seconds !== undefined) fields.unshift(formatField(ast.seconds));
+  return fields.join(" ");
 }

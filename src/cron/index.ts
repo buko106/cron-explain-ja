@@ -12,5 +12,21 @@ export {
 } from "./fields";
 export { next } from "./next";
 export { type ParsedExpression, parseExpression } from "./parser";
+export { type ShiftDirection, shiftAst, shiftExpression } from "./shift";
 export { validate } from "./validate";
-export { coversAll, expandField, formatField, hasExtension, isAny, toRanges } from "./values";
+export {
+  coversAll,
+  expandField,
+  formatExpression,
+  formatField,
+  hasExtension,
+  isAny,
+  toRanges,
+} from "./values";
+export {
+  instantAt,
+  resolveTimeZone,
+  SERVER_TIME_ZONE,
+  type WallClock,
+  wallClockWithOffset,
+} from "./zone";

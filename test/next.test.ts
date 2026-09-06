@@ -2,7 +2,8 @@ import { CronExpressionParser } from "cron-parser";
 import { describe, expect, it } from "vitest";
 import { next } from "../src/index";
 
-const FROM = new Date(2026, 8, 5, 12, 34, 56); // 2026-09-05 (土) 12:34:56 ローカル
+/** 2026-09-05 (土) 12:34:56 UTC。cron 式は UTC として解釈されるので UTC で書く */
+const FROM = new Date("2026-09-05T12:34:56Z");
 
 function iso(dates: Date[]): string[] {
   return dates.map((date) => date.toISOString());
@@ -13,10 +14,18 @@ describe("next", () => {
     expect(next("0 9 * * 1-5", { from: FROM })).toHaveLength(3);
   });
 
+  it("cron 式は UTC として解釈する（実行環境のゾーンに依存しない）", () => {
+    expect(iso(next("0 9 * * 1-5", { from: FROM, count: 3 }))).toEqual([
+      "2026-09-07T09:00:00.000Z",
+      "2026-09-08T09:00:00.000Z",
+      "2026-09-09T09:00:00.000Z",
+    ]);
+  });
+
   it("平日の 9 時を正しく求める", () => {
     const dates = next("0 9 * * 1-5", { from: FROM, count: 3 });
     expect(
-      dates.map((date) => `${date.getMonth() + 1}/${date.getDate()} ${date.getHours()}`),
+      dates.map((date) => `${date.getUTCMonth() + 1}/${date.getUTCDate()} ${date.getUTCHours()}`),
     ).toEqual(["9/7 9", "9/8 9", "9/9 9"]);
   });
 
@@ -28,15 +37,14 @@ describe("next", () => {
     expect(next("*/15 * * * *", { from: FROM, count: 0 })).toEqual([]);
   });
 
-  it("UTC で解釈できる", () => {
-    const [first] = next("0 0 * * *", { from: new Date("2026-09-05T12:00:00Z"), tz: "UTC" });
+  it("日付の境界をまたぐ", () => {
+    const [first] = next("0 0 * * *", { from: new Date("2026-09-05T12:00:00Z") });
     expect(first?.toISOString()).toBe("2026-09-06T00:00:00.000Z");
   });
 
   it("日と曜日の同時指定は OR", () => {
-    const dates = next("0 0 15 * 1", { from: new Date(2026, 8, 5), count: 4 });
-    const days = dates.map((date) => date.getDate());
-    expect(days).toEqual([7, 14, 15, 21]);
+    const dates = next("0 0 15 * 1", { from: new Date("2026-09-05T00:00:00Z"), count: 4 });
+    expect(dates.map((date) => date.getUTCDate())).toEqual([7, 14, 15, 21]);
   });
 
   it("拡張構文では空配列", () => {
@@ -55,7 +63,7 @@ describe("next", () => {
 
   it("秒付きの式に対応する", () => {
     const dates = next("*/30 * * * * *", { from: FROM, seconds: true, count: 2 });
-    expect(dates.map((date) => date.getSeconds())).toEqual([0, 30]);
+    expect(dates.map((date) => date.getUTCSeconds())).toEqual([0, 30]);
   });
 
   it("不正な from は空配列", () => {
@@ -68,8 +76,8 @@ describe("next", () => {
   });
 
   it("うるう年の 2/29 を跨いで探索する", () => {
-    const [first] = next("0 0 29 2 *", { from: new Date(2026, 0, 1), count: 1 });
-    expect(first?.getFullYear()).toBe(2028);
+    const [first] = next("0 0 29 2 *", { from: new Date("2026-01-01T00:00:00Z"), count: 1 });
+    expect(first?.getUTCFullYear()).toBe(2028);
   });
 });
 
@@ -93,7 +101,7 @@ describe("next（cron-parser との一致）", () => {
   ];
 
   it.each(expressions)("%s", (expression) => {
-    const reference = CronExpressionParser.parse(expression, { currentDate: FROM });
+    const reference = CronExpressionParser.parse(expression, { currentDate: FROM, tz: "UTC" });
     const expected = Array.from({ length: 5 }, () => reference.next().toDate());
     expect(iso(next(expression, { from: FROM, count: 5 }))).toEqual(iso(expected));
   });

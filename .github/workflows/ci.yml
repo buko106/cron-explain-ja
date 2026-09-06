@@ -46,3 +46,21 @@ jobs:
       - run: node dist/cli.js --version
       - run: node -e "import(require('node:url').pathToFileURL('dist/index.js').href).then(() => console.log('esm ok'))"
       - run: node --input-type=commonjs -e "require('./dist/index.cjs'); console.log('cjs ok')"
+      # 古い Node では Intl の挙動が違いうるが vitest は動かせないので、
+      # タイムゾーンの変換だけここでスモークする
+      - name: timezone smoke
+        run: |
+          node --input-type=commonjs -e "
+            const { explain, parse } = require('./dist/index.cjs');
+            const check = (actual, expected, label) => {
+              if (actual !== expected) {
+                throw new Error(label + ': ' + actual + ' (expected ' + expected + ')');
+              }
+            };
+            check(parse('毎日午後1時').expression, '0 4 * * *', 'parse 既定(Asia/Tokyo) → UTC');
+            check(parse('毎日午後1時', { tz: 'UTC' }).expression, '0 13 * * *', 'parse tz=UTC');
+            check(explain('0 4 * * *'), '毎日午後1時', 'explain 既定(UTC → Asia/Tokyo)');
+            check(explain('0 9 * * *', { tz: 'UTC' }), '毎日午前9時', 'explain tz=UTC');
+            check(explain('0 20 * * 1'), '毎週火曜日の午前5時', 'explain 日またぎ');
+            console.log('timezone ok');
+          "

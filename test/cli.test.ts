@@ -68,25 +68,28 @@ describe("caretLine", () => {
 describe("run: explain", () => {
   it("日本語を出力する", async () => {
     const memory = io();
-    expect(await run(["explain", "0 9 * * 1-5"], memory)).toBe(0);
+    expect(await run(["explain", "0 9 * * 1-5", "--tz", "UTC"], memory)).toBe(0);
     expect(memory.stdout).toEqual(["平日の午前9時"]);
   });
 
   it("サブコマンド省略時に cron 式を判定する", async () => {
     const memory = io();
-    await run(["0 9 * * 1-5"], memory);
+    await run(["0 9 * * 1-5", "--tz", "UTC"], memory);
     expect(memory.stdout).toEqual(["平日の午前9時"]);
   });
 
   it("--style / --hour を反映する", async () => {
     const memory = io();
-    await run(["explain", "0 9 * * 1-5", "--style", "formal", "--hour", "24h"], memory);
+    await run(
+      ["explain", "0 9 * * 1-5", "--style", "formal", "--hour", "24h", "--tz", "UTC"],
+      memory,
+    );
     expect(memory.stdout).toEqual(["平日の9時00分"]);
   });
 
   it("--detailed で内訳と次回を出す", async () => {
     const memory = io();
-    await run(["explain", "0 9 * * 1-5", "--detailed"], memory);
+    await run(["explain", "0 9 * * 1-5", "--detailed", "--tz", "UTC"], memory);
     expect(memory.stdout[0]).toBe("平日の午前9時");
     expect(memory.stdout.some((line) => line.includes("曜日") && line.includes("平日"))).toBe(true);
     expect(memory.stdout).toContain("次回:");
@@ -94,7 +97,7 @@ describe("run: explain", () => {
 
   it("--json で JSON を出す", async () => {
     const memory = io();
-    await run(["explain", "0 9 * * 1-5", "--json"], memory);
+    await run(["explain", "0 9 * * 1-5", "--json", "--tz", "UTC"], memory);
     const payload = JSON.parse(memory.stdout[0] ?? "{}") as { text: string; expression: string };
     expect(payload.text).toBe("平日の午前9時");
     expect(payload.expression).toBe("0 9 * * 1-5");
@@ -102,14 +105,14 @@ describe("run: explain", () => {
 
   it("note は stderr に出す", async () => {
     const memory = io();
-    await run(["explain", "0 0 L * *"], memory);
+    await run(["explain", "0 0 L * *", "--tz", "UTC"], memory);
     expect(memory.stdout).toEqual(["毎月月末の午前0時"]);
     expect(memory.stderr.some((line) => line.includes("Quartz"))).toBe(true);
   });
 
   it("--quiet は note を止める", async () => {
     const memory = io();
-    await run(["explain", "0 0 L * *", "--quiet"], memory);
+    await run(["explain", "0 0 L * *", "--quiet", "--tz", "UTC"], memory);
     expect(memory.stderr).toEqual([]);
   });
 
@@ -129,19 +132,19 @@ describe("run: explain", () => {
 describe("run: parse", () => {
   it("cron 式を出力する", async () => {
     const memory = io();
-    expect(await run(["parse", "平日の朝9時"], memory)).toBe(0);
+    expect(await run(["parse", "平日の朝9時", "--tz", "UTC"], memory)).toBe(0);
     expect(memory.stdout).toEqual(["0 9 * * 1-5"]);
   });
 
   it("サブコマンド省略時に日本語を判定する", async () => {
     const memory = io();
-    await run(["平日の朝9時"], memory);
+    await run(["平日の朝9時", "--tz", "UTC"], memory);
     expect(memory.stdout).toEqual(["0 9 * * 1-5"]);
   });
 
   it("曖昧なら warn を出す", async () => {
     const memory = io();
-    await run(["parse", "毎日"], memory);
+    await run(["parse", "毎日", "--tz", "UTC"], memory);
     expect(memory.stdout).toEqual(["0 9 * * *"]);
     expect(memory.stderr.some((line) => line.includes("confidence: 0.6"))).toBe(true);
     expect(memory.stderr.some((line) => line.includes("--default-hour"))).toBe(true);
@@ -149,7 +152,7 @@ describe("run: parse", () => {
 
   it("--default-hour を反映する", async () => {
     const memory = io();
-    await run(["parse", "毎日", "--default-hour", "7"], memory);
+    await run(["parse", "毎日", "--default-hour", "7", "--tz", "UTC"], memory);
     expect(memory.stdout).toEqual(["0 7 * * *"]);
   });
 
@@ -167,7 +170,7 @@ describe("run: parse", () => {
 
   it("-i は対話で曖昧さを埋める", async () => {
     const memory = io({ answers: ["7"] });
-    expect(await run(["parse", "毎日", "-i"], memory)).toBe(0);
+    expect(await run(["parse", "毎日", "-i", "--tz", "UTC"], memory)).toBe(0);
     expect(memory.questions[0]).toContain("何時ですか");
     expect(memory.stdout).toEqual(["0 7 * * *"]);
   });
@@ -184,7 +187,7 @@ describe("run: parse", () => {
 
   it("--json は confidence を含む", async () => {
     const memory = io();
-    await run(["parse", "毎日", "--json"], memory);
+    await run(["parse", "毎日", "--json", "--tz", "UTC"], memory);
     const payload = JSON.parse(memory.stdout[0] ?? "{}") as { confidence: number };
     expect(payload.confidence).toBe(0.6);
   });
@@ -234,13 +237,58 @@ describe("run: next", () => {
   });
 
   it("--format iso / unix", async () => {
+    // 式は UTC の 09:00。--tz は表示だけを変える
     const isoIO = io();
     await run(["next", "0 9 * * *", "--format", "iso", "-n", "1"], isoIO);
-    expect(isoIO.stdout[0]).toMatch(/T.*Z$/);
+    expect(isoIO.stdout[0]).toMatch(/^\d{4}-\d{2}-\d{2}T18:00:00\+09:00$/);
+
+    const utcIO = io();
+    await run(["next", "0 9 * * *", "--format", "iso", "--tz", "UTC", "-n", "1"], utcIO);
+    expect(utcIO.stdout[0]).toMatch(/^\d{4}-\d{2}-\d{2}T09:00:00Z$/);
+
+    const nyIO = io();
+    await run(
+      ["next", "0 9 * * *", "--format", "iso", "--tz", "America/New_York", "-n", "1"],
+      nyIO,
+    );
+    expect(nyIO.stdout[0]).toMatch(/^\d{4}-\d{2}-\d{2}T0[45]:00:00-0[45]:00$/);
 
     const unixIO = io();
     await run(["next", "0 9 * * *", "--format", "unix", "-n", "1"], unixIO);
     expect(unixIO.stdout[0]).toMatch(/^\d+$/);
+  });
+
+  it("式は UTC として数え、--tz のゾーンで表示する", async () => {
+    // UTC の 09:00 は JST の 18:00、New York（EDT）の 05:00
+    const base = ["next", "0 9 * * *", "--from", "2026-06-14T00:00:00Z", "-n", "1"];
+
+    const tokyo = io();
+    await run(base, tokyo);
+    expect(tokyo.stdout).toEqual(["2026-06-14 (日) 18:00"]);
+
+    const utc = io();
+    await run([...base, "--tz", "UTC"], utc);
+    expect(utc.stdout).toEqual(["2026-06-14 (日) 09:00"]);
+
+    const newYork = io();
+    await run([...base, "--tz", "America/New_York"], newYork);
+    expect(newYork.stdout).toEqual(["2026-06-14 (日) 05:00"]);
+
+    const json = io();
+    await run([...base, "--json"], json);
+    expect(JSON.parse(json.stdout[0] ?? "{}")).toEqual({
+      tz: "Asia/Tokyo",
+      next: ["2026-06-14T09:00:00.000Z"],
+    });
+  });
+
+  it("--tz が不正なら exit 2", async () => {
+    const memory = io();
+    expect(await run(["next", "0 9 * * *", "--tz", "Nowhere/Nothing"], memory)).toBe(2);
+    expect(memory.stderr[0]).toContain("Nowhere/Nothing");
+
+    const explainIO = io();
+    expect(await run(["explain", "0 9 * * *", "--tz", "Nowhere/Nothing"], explainIO)).toBe(2);
   });
 
   it("--from が不正なら exit 2", async () => {
@@ -282,7 +330,7 @@ describe("run: 共通", () => {
 
   it("標準入力を 1 行ずつ処理する", async () => {
     const memory = io({ stdinIsTTY: false, stdin: ["0 9 * * 1-5", "0 3 * * *", "*/15 * * * *"] });
-    expect(await run(["explain"], memory)).toBe(0);
+    expect(await run(["explain", "--tz", "UTC"], memory)).toBe(0);
     expect(memory.stdout).toEqual(["平日の午前9時", "毎日午前3時", "15分ごと"]);
   });
 
@@ -295,7 +343,7 @@ describe("run: 共通", () => {
 
   it("複数行ではエラー行を飛ばして続行し、最大の exit code を返す", async () => {
     const memory = io({ stdinIsTTY: false, stdin: ["0 9 * * 1-5", "0 99 * * *"] });
-    expect(await run(["explain"], memory)).toBe(2);
+    expect(await run(["explain", "--tz", "UTC"], memory)).toBe(2);
     expect(memory.stdout).toEqual(["平日の午前9時"]);
   });
 

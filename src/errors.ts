@@ -27,3 +27,17 @@ export class ParseAmbiguityError extends Error {
     this.result = result;
   }
 }
+
+/**
+ * タイムゾーン名を解釈できなかったときに投げられる。
+ */
+export class CronTimeZoneError extends Error {
+  /** 与えられたゾーン名 */
+  readonly timeZone: string;
+
+  constructor(message: string, timeZone: string) {
+    super(message);
+    this.name = "CronTimeZoneError";
+    this.timeZone = timeZone;
+  }
+}

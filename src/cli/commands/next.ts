@@ -1,4 +1,4 @@
-import { next } from "../../cron";
+import { instantAt, next } from "../../cron";
 import { CronSyntaxError } from "../../errors";
 import type { NextOptions } from "../../types";
 import type { CliArgs } from "../args";
@@ -11,27 +11,54 @@ import {
   EXIT_OK,
   enumOption,
   formatDateHuman,
+  formatDateIso,
   intOption,
   reportError,
   reportWarn,
+  resolveZone,
   stringOption,
 } from "./shared";
 
-export function nextOptions(args: CliArgs): NextOptions {
+/** タイムゾーンを伴わない ISO 8601（'2026-06-14' や '2026-06-14T02:00'） */
+const NAIVE_DATETIME = /^(\d{4})-(\d{2})-(\d{2})(?:[T ](\d{2}):(\d{2})(?::(\d{2}))?)?$/;
+
+/**
+ * `--from` を解釈する。
+ *
+ * オフセットを書いていない日時は `tz` の壁時計として読む。`new Date()` に任せると
+ * 実行環境のローカル時刻になり、結果がホストのゾーンに左右されてしまう。
+ */
+function fromOption(args: CliArgs, tz: string): Date | undefined {
+  const from = stringOption(args, "from");
+  if (from === undefined) return undefined;
+
+  const naive = NAIVE_DATETIME.exec(from);
+  const date =
+    naive === null
+      ? new Date(from)
+      : instantAt(
+          tz,
+          Number(naive[1]),
+          Number(naive[2]),
+          Number(naive[3]),
+          Number(naive[4] ?? 0),
+          Number(naive[5] ?? 0),
+          Number(naive[6] ?? 0),
+        );
+  if (Number.isNaN(date.getTime())) {
+    throw new CliUsageError(`--from の日時 '${from}' を解釈できません`);
+  }
+  return date;
+}
+
+export function nextOptions(args: CliArgs, tz: string): NextOptions {
   const options: NextOptions = {
     count: intOption(args, "count", 3),
-    tz: enumOption(args, "tz", ["UTC", "local"] as const, "local"),
   };
   if (boolOption(args, "seconds")) options.seconds = true;
 
-  const from = stringOption(args, "from");
-  if (from !== undefined) {
-    const date = new Date(from);
-    if (Number.isNaN(date.getTime())) {
-      throw new CliUsageError(`--from の日時 '${from}' を解釈できません`);
-    }
-    options.from = date;
-  }
+  const from = fromOption(args, tz);
+  if (from !== undefined) options.from = from;
   return options;
 }
 
@@ -39,7 +66,9 @@ export function nextOptions(args: CliArgs): NextOptions {
  * `cron-ja next`
  */
 export async function nextCommand(args: CliArgs, io: IO): Promise<number> {
-  const options = nextOptions(args);
+  // cron 式は UTC として解釈し、--tz は表示にだけ使う
+  const tz = resolveZone(stringOption(args, "tz"));
+  const options = nextOptions(args, tz);
   const format = enumOption(args, "format", ["human", "iso", "unix"] as const, "human");
   const json = boolOption(args, "json");
   const quiet = boolOption(args, "quiet");
@@ -64,7 +93,8 @@ export async function nextCommand(args: CliArgs, io: IO): Promise<number> {
     }
 
     if (json) {
-      const payload = { next: dates.map((date) => date.toISOString()) };
+      // 機械向けなので日時は UTC 正規化のまま。どのゾーンで表示したかは tz で示す
+      const payload = { tz, next: dates.map((date) => date.toISOString()) };
       io.out(JSON.stringify(multiple ? { input, ...payload } : payload));
       continue;
     }
@@ -78,14 +108,9 @@ export async function nextCommand(args: CliArgs, io: IO): Promise<number> {
     }
 
     for (const date of dates) {
-      if (format === "iso") io.out(date.toISOString());
+      if (format === "iso") io.out(formatDateIso(date, tz));
       else if (format === "unix") io.out(String(Math.floor(date.getTime() / 1000)));
-      else {
-        const opts: { tz?: "UTC" | "local"; seconds?: boolean } = {};
-        if (options.tz !== undefined) opts.tz = options.tz;
-        if (options.seconds === true) opts.seconds = true;
-        io.out(formatDateHuman(date, opts));
-      }
+      else io.out(formatDateHuman(date, { tz, seconds: options.seconds === true }));
     }
   }
 

@@ -1,4 +1,5 @@
-import { CronSyntaxError } from "../../errors";
+import { SERVER_TIME_ZONE, validate } from "../../cron";
+import { CronSyntaxError, CronTimeZoneError } from "../../errors";
 import { explain, explainDetailed } from "../../explain";
 import type { ExplainOptions } from "../../types";
 import type { CliArgs } from "../args";
@@ -15,6 +16,7 @@ import {
   padDisplay,
   reportError,
   reportNote,
+  resolveZone,
   stringOption,
 } from "./shared";
 
@@ -33,14 +35,24 @@ export function explainOptions(args: CliArgs): ExplainOptions {
     hour: enumOption(args, "hour", ["12h", "24h"] as const, "12h"),
   };
   if (boolOption(args, "seconds")) options.seconds = true;
+  if (boolOption(args, "show-tz")) options.showTimeZone = true;
   const tz = stringOption(args, "tz");
-  if (tz !== undefined) options.tz = tz;
+  // 解釈できない名前はライブラリに渡す前に exit 2 へ落とす
+  if (tz !== undefined) options.tz = resolveZone(tz);
   return options;
 }
 
 function detailedLines(expression: string, options: ExplainOptions, io: IO): string[] {
   const detail = explainDetailed(expression, options);
   const lines: string[] = [detail.text, ""];
+
+  // 書き換えが起きたときは、どの式をどう読み替えたのかを見せる
+  if (detail.localExpression !== detail.expression) {
+    lines.push(
+      `  ${SERVER_TIME_ZONE} ${detail.expression}  →  ${detail.tz} ${detail.localExpression}`,
+      "",
+    );
+  }
 
   const rows: Array<[string, string, string]> = [];
   for (const [key, label] of FIELD_LABELS) {
@@ -54,9 +66,12 @@ function detailedLines(expression: string, options: ExplainOptions, io: IO): str
   }
 
   if (detail.next.length > 0) {
+    // next は UTC 解釈の絶対時刻なので、表示だけ tz の壁時計に直す
     lines.push("", "次回:");
     for (const date of detail.next) {
-      lines.push(`  ${formatDateHuman(date, { seconds: options.seconds === true })}`);
+      lines.push(
+        `  ${formatDateHuman(date, { tz: detail.tz, seconds: options.seconds === true })}`,
+      );
     }
   }
   return lines.map((line) => (line === detail.text ? line : dim(io, line)));
@@ -87,12 +102,15 @@ export async function explainCommand(args: CliArgs, io: IO): Promise<number> {
         for (const line of detailedLines(input, options, io)) io.out(line);
       } else {
         io.out(explain(input, options));
+        // note は式の検証結果そのもの。explainDetailed を組み立て直すと
+        // 捨てるだけの next() まで走ってしまう
         if (!quiet) {
-          for (const note of explainDetailed(input, options).notes) reportNote(io, note);
+          const parserOptions = options.seconds === true ? { seconds: true } : {};
+          for (const note of validate(input, parserOptions).warnings) reportNote(io, note);
         }
       }
     } catch (error) {
-      if (error instanceof CronSyntaxError) {
+      if (error instanceof CronSyntaxError || error instanceof CronTimeZoneError) {
         if (json && multiple) {
           io.out(JSON.stringify({ input, error: error.message }));
         } else {

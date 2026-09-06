@@ -41,26 +41,33 @@ describe.skipIf(!built)("CLI E2E (dist/cli.js)", () => {
     expect(result.stdout.trim()).toBe(pkg.version);
   });
 
-  it("explain", async () => {
-    const result = await runCli(["explain", "0 9 * * 1-5"]);
-    expect(result.stdout.trim()).toBe("平日の午前9時");
+  it("explain（既定で UTC → Asia/Tokyo に読み替える）", async () => {
+    const result = await runCli(["explain", "0 4 * * 1-5"]);
+    expect(result.stdout.trim()).toBe("平日の午後1時");
     expect(result.code).toBe(0);
+
+    const utc = await runCli(["explain", "0 9 * * 1-5", "--tz", "UTC"]);
+    expect(utc.stdout.trim()).toBe("平日の午前9時");
   });
 
-  it("parse", async () => {
-    const result = await runCli(["parse", "平日の朝9時"]);
-    expect(result.stdout.trim()).toBe("0 9 * * 1-5");
+  it("parse（既定で Asia/Tokyo → UTC に読み替える）", async () => {
+    const result = await runCli(["parse", "毎日午後1時"]);
+    expect(result.stdout.trim()).toBe("0 4 * * *");
+
+    const utc = await runCli(["parse", "平日の朝9時", "--tz", "UTC"]);
+    expect(utc.stdout.trim()).toBe("0 9 * * 1-5");
   });
 
   it("標準入力をパイプで受け取る", async () => {
-    const result = await runCli(["explain"], "0 9 * * 1-5\n0 3 * * *\n");
-    expect(result.stdout.trim().split("\n")).toEqual(["平日の午前9時", "毎日午前3時"]);
+    const result = await runCli(["explain"], "0 4 * * 1-5\n0 18 * * *\n");
+    expect(result.stdout.trim().split("\n")).toEqual(["平日の午後1時", "毎日午前3時"]);
   });
 
   it("--json は JSON として読める", async () => {
-    const result = await runCli(["explain", "0 9 * * 1-5", "--json"]);
-    const payload = JSON.parse(result.stdout) as { text: string };
-    expect(payload.text).toBe("平日の午前9時");
+    const result = await runCli(["explain", "0 4 * * 1-5", "--json"]);
+    const payload = JSON.parse(result.stdout) as { text: string; localExpression: string };
+    expect(payload.text).toBe("平日の午後1時");
+    expect(payload.localExpression).toBe("0 13 * * 1-5");
   });
 
   it("不正な式は exit 2 で stdout は空", async () => {
@@ -77,7 +84,7 @@ describe.skipIf(!built)("CLI E2E (dist/cli.js)", () => {
 
   it("結果だけを取り出せる（note は stderr）", async () => {
     const result = await runCli(["explain", "0 0 L * *"]);
-    expect(result.stdout.trim()).toBe("毎月月末の午前0時");
+    expect(result.stdout.trim()).toBe("毎月月末の午前9時");
     expect(result.stderr).toContain("note");
   });
 });
