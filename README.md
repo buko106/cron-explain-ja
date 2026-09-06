@@ -329,50 +329,11 @@ pnpm changeset        # 変更の種類（major/minor/patch）と説明を書く
 
 main にマージすると Release ワークフローが「Version Packages」PR を作り、その PR を
 マージすると npm に公開されます。npm への publish は Trusted Publishing（OIDC）で行うので、
-npm のトークンは保管しません。
+npm のトークンは保管していません。
 
-### 必要な設定
-
-**GitHub Secrets** は次の 1 つだけです。
-
-| Secret | 用途 |
-|---|---|
-| `RELEASE_TOKEN` | Version PR に CI を走らせるための classic PAT（`repo` スコープ） |
-
-fine-grained トークンは使えません。未設定でも `GITHUB_TOKEN` にフォールバックするので
-リリース自体は動きます（Version PR の承認だけ手作業になります）。
-
-**npm** 側は **npmjs.com → cron-explain-ja → Settings → Trusted publisher** で GitHub Actions を
-登録しておく必要があります。ここで指定したワークフロー以外からは publish できません。
-
-| 項目 | 値 |
-| --- | --- |
-| Organization or user | `buko106` |
-| Repository | `cron-explain-ja` |
-| Workflow filename | `release.yml` |
-| Environment | （空欄） |
-| Allowed actions | **`npm publish` にチェック** |
-
-公開リポジトリの公開パッケージなので、npm CLI が provenance も自動で付けます。
-Trusted publisher を登録すれば `NPM_TOKEN` の Secret は不要です。
-
-**GitHub の Settings → Actions → General** は次の 2 つを設定します。
-
-| 項目 | 値 |
-| --- | --- |
-| Workflow permissions | Read and write permissions |
-| Actions permissions | サードパーティのアクションを許可（絞るなら `pnpm/action-setup@*, changesets/action@*`） |
-
-**ワークフロー側**の前提は次の 4 つです。
-
-- `permissions` に `id-token: write` を入れる
-- npm CLI を **11 系**（11.5.1 以上、12 系は不可）にする
-- `actions/setup-node` に `registry-url` を **指定しない**
-- `changesets/action` は **v2 以上**を使う
-
-これらを外したときにどう失敗したか（診断に時間がかかったものばかりです）は
-[RELEASE-TROUBLESHOOTING.md](https://github.com/buko106/cron-explain-ja/blob/main/RELEASE-TROUBLESHOOTING.md)
-に記録してあります。設定を変える前に読んでください。
+リポジトリの外側にある設定（GitHub Secrets、npm の trusted publisher、Actions の設定）と、
+それらを外したときにどう壊れたかの記録は
+[RELEASE.md](https://github.com/buko106/cron-explain-ja/blob/main/RELEASE.md) にあります。
 
 ## 互換性
 

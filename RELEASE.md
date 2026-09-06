@@ -1,13 +1,59 @@
-# リリース設定のトラブルシューティング履歴
+# リリース
 
-Release ワークフロー（changesets + npm の Trusted Publishing）を組むまでに踏んだ失敗の
-記録です。**現在必要な設定は README の「リリース」に書いてあります**。ここにあるのは
-「なぜその設定なのか」「外すとどう壊れるか」だけで、手順書ではありません。
+変更は [changesets](https://github.com/changesets/changesets) で記録し、main にマージすると
+Release ワークフローが「Version Packages」PR を作ります。その PR をマージすると npm に
+公開されます。npm への publish は Trusted Publishing（OIDC）で行うので、npm のトークンは
+保管していません。
 
-どれも症状が原因から遠いものばかりで、設定を変える前に読み返す価値があります。
+この文書はリポジトリの外側にある設定（GitHub Secrets、npm の trusted publisher、
+リポジトリの Actions 設定）と、それらを外したときにどう壊れたかの記録です。
 npm のパッケージには同梱していません。
 
-## Version PR の CI が承認待ちで止まる
+## 必要な設定
+
+**GitHub Secrets** は次の 1 つだけです。
+
+| Secret | 用途 |
+|---|---|
+| `RELEASE_TOKEN` | Version PR に CI を走らせるための classic PAT（`repo` スコープ） |
+
+fine-grained トークンは使えません。未設定でも `GITHUB_TOKEN` にフォールバックするので
+リリース自体は動きます（Version PR の承認だけ手作業になります）。
+
+**npm** 側は **npmjs.com → cron-explain-ja → Settings → Trusted publisher** で GitHub Actions を
+登録しておく必要があります。ここで指定したワークフロー以外からは publish できません。
+
+| 項目 | 値 |
+| --- | --- |
+| Organization or user | `buko106` |
+| Repository | `cron-explain-ja` |
+| Workflow filename | `release.yml` |
+| Environment | （空欄） |
+| Allowed actions | **`npm publish` にチェック** |
+
+公開リポジトリの公開パッケージなので、npm CLI が provenance も自動で付けます。
+Trusted publisher を登録すれば `NPM_TOKEN` の Secret は不要です。
+
+**GitHub の Settings → Actions → General** は次の 2 つを設定します。
+
+| 項目 | 値 |
+| --- | --- |
+| Workflow permissions | Read and write permissions |
+| Actions permissions | サードパーティのアクションを許可（絞るなら `pnpm/action-setup@*, changesets/action@*`） |
+
+**ワークフロー側**の前提は次の 4 つです。
+
+- `permissions` に `id-token: write` を入れる
+- npm CLI を **11 系**（11.5.1 以上、12 系は不可）にする
+- `actions/setup-node` に `registry-url` を **指定しない**
+- `changesets/action` は **v2 以上**を使う
+
+## トラブルシューティング履歴
+
+Release ワークフローを組むまでに踏んだ失敗の記録です。上の設定を変える前に読んでください。
+どれも症状が原因から遠く、診断に時間がかかったものばかりです。
+
+### Version PR の CI が承認待ちで止まる
 
 **症状** — changesets のアクションが作った「Version Packages」PR で、CI が
 `action_required` のまま動かない。必須チェックが埋まらないのでブランチ保護によって
@@ -28,7 +74,7 @@ classic PAT（`repo` スコープ）を使う。未設定でも `GITHUB_TOKEN` �
 `push-with-git-cli` を有効にすると checkout が `.git/config` に埋めた
 `http.extraheader` が使われ、push だけ bot 名義に戻るため。
 
-## `changesets/action@v1` でタグと Release が黙って飛ばされる
+### `changesets/action@v1` でタグと Release が黙って飛ばされる
 
 **症状** — publish は成功しているのに、git のタグが push されず GitHub Release も
 作られない。ログにエラーは出ない。
@@ -39,7 +85,7 @@ classic PAT（`repo` スコープ）を使う。未設定でも `GITHUB_TOKEN` �
 **対処** — アクションは **v2 以上**を使う。v2 は NDJSON のファイル経由で結果を
 受け取るのでこの取りこぼしが起きない。
 
-## npm への publish が E403（Trusted Publishing）
+### npm への publish が E403（Trusted Publishing）
 
 **症状** — トークンの交換は 201 で成功し、provenance の署名まで通ったうえで、
 最後の `PUT` だけが 403 になる。
@@ -66,7 +112,7 @@ npm は 2026-09-03 に既定を変えており、それ以降に作った設定�
 （2FA が要る）で公開する仕組み。安全側だが公開に手作業が挟まるので、ここでは
 自動リリースを優先して `npm publish` を選んでいる。
 
-## OIDC が試されず通常の認証に落ちる
+### OIDC が試されず通常の認証に落ちる
 
 **症状** — ログに OIDC の交換が現れないまま、認証エラーで publish が止まる。
 
@@ -75,7 +121,7 @@ OIDC を試さずに黙って通常の認証へ落ちる。
 
 **対処** — `permissions` に `id-token: write` を入れる。
 
-## npm CLI のバージョン（10 系では動かず、12 系では別の失敗）
+### npm CLI のバージョン（10 系では動かず、12 系では別の失敗）
 
 **症状** — Node 22 の同梱 npm（10 系）では Trusted Publishing がそもそも動かない。
 一方 12 系に上げると `EUNKNOWNCONFIG` で publish が落ちる。
@@ -89,7 +135,7 @@ pnpm 9 は自分専用のフラグ（`--no-git-checks`）もそのまま npm へ
 **対処** — `npm install --global "npm@^11.5.1"` で 11 系に入れ替える。12 に上げるなら、
 委譲前にフラグを落とす pnpm 10 以上へ先に揃えること。
 
-## 認証失敗が 404 になって原因を見失う
+### 認証失敗が 404 になって原因を見失う
 
 **症状** — publish が 404 で落ちる。パッケージ名の間違いにしか見えない。
 
@@ -101,7 +147,7 @@ publish され、認証失敗が 404 で返ってくる。
 **対処** — `registry-url` を **指定しない**。既定のレジストリは registry.npmjs.org なので
 publish 先は変わらず、認証が無いときは `ENEEDAUTH` で止まるので原因が分かる。
 
-## Version PR が作られない
+### Version PR が作られない
 
 **症状** — main にマージしても changesets のアクションが Version PR を作らない。
 
@@ -110,7 +156,7 @@ publish 先は変わらず、認証が無いときは `ENEEDAUTH` で止まる�
 
 **対処** — 「Read and write permissions」にする。
 
-## ジョブが 1 つも作られず `startup_failure`
+### ジョブが 1 つも作られず `startup_failure`
 
 **症状** — run は作られるがジョブが 1 つも無く `startup_failure` で終わる。
 **Re-run ボタンも出ない**。
