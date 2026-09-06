@@ -20,20 +20,13 @@ interface DemoOptions {
   hour: "12h" | "24h";
 }
 
-/** どちらの欄を入力元とみなすか */
-type Pane = "cron" | "ja";
+/** 変換の向き。入力できるのは変換元の欄だけで、変換先は読み取り専用 */
+type Direction = "cronToJa" | "jaToCron";
 
-const SAMPLES: ReadonlyArray<{ pane: Pane; text: string }> = [
-  { pane: "cron", text: "0 0 * * 1-5" },
-  { pane: "cron", text: "*/15 * * * *" },
-  { pane: "cron", text: "0 4 * * *" },
-  { pane: "cron", text: "30 15 1 * *" },
-  { pane: "cron", text: "@daily" },
-  { pane: "ja", text: "平日の朝9時" },
-  { pane: "ja", text: "毎日午後1時" },
-  { pane: "ja", text: "毎時9分と39分" },
-  { pane: "ja", text: "毎月10日と25日の午前10時" },
-];
+const CRON_SAMPLES = ["0 0 * * 1-5", "*/15 * * * *", "0 4 * * *", "30 15 1 * *", "@daily"];
+const JA_SAMPLES = ["平日の朝9時", "毎日午後1時", "毎時9分と39分", "毎月10日と25日の午前10時"];
+
+const PLACEHOLDER = { cron: "0 0 * * 1-5", ja: "平日の午前9時" };
 
 const FIELD_LABELS = [
   ["second", "秒"],
@@ -58,6 +51,12 @@ const cronDiag = element("cron-diag");
 const jaDiag = element("ja-diag");
 const cronZone = element("cron-zone");
 const jaZone = element("ja-zone");
+const cronRole = element("cron-role");
+const jaRole = element("ja-role");
+const panes = element("panes");
+const swapButton = element<HTMLButtonElement>("swap");
+const dirFrom = element("dir-from");
+const dirTo = element("dir-to");
 const tzSelect = element<HTMLSelectElement>("tz");
 const styleSelect = element<HTMLSelectElement>("style");
 const hourSelect = element<HTMLSelectElement>("hour");
@@ -67,7 +66,6 @@ const fieldsZone = element("fields-zone");
 const nextList = element("next-list");
 const nextZone = element("next-zone");
 const proseZone = element("prose-zone");
-const samplesBox = element("samples");
 
 function pad2(value: number): string {
   return String(value).padStart(2, "0");
@@ -169,11 +167,6 @@ function renderNext(detail: Explanation): void {
   }
 }
 
-/** 入力元がエラーのとき、反対側に残る前回の結果を「今の入力のものではない」と示す */
-function markStale(pane: Pane): void {
-  (pane === "cron" ? cronInput : jaInput).classList.add("stale");
-}
-
 function showDetail(detail: Explanation): void {
   renderFields(detail);
   renderNext(detail);
@@ -184,7 +177,12 @@ function hideDetail(): void {
   detailBox.hidden = true;
 }
 
-/** cron 式の欄を入力元として、日本語の欄と内訳を作り直す */
+/** 変換元がエラーのとき、変換先に残る前回の結果を「今の入力のものではない」と示す */
+function markStale(pane: "cron" | "ja"): void {
+  (pane === "cron" ? cronInput : jaInput).classList.add("stale");
+}
+
+/** cron 式 → 日本語 */
 function renderFromCron(options: DemoOptions): void {
   const expression = cronInput.value.trim();
   if (expression === "") {
@@ -218,7 +216,7 @@ function renderFromCron(options: DemoOptions): void {
   for (const note of detail.notes) addDiagnostic(cronDiag, "warn", note);
 }
 
-/** 日本語の欄を入力元として、cron 式の欄と内訳を作り直す */
+/** 日本語 → cron 式 */
 function renderFromJa(options: DemoOptions): void {
   const text = jaInput.value.trim();
   if (text === "") {
@@ -276,10 +274,29 @@ function updateZoneLabels(zone: string): void {
   proseZone.textContent = zone;
 }
 
-let lastPane: Pane = "cron";
+let direction: Direction = "cronToJa";
 
-function render(pane: Pane): void {
-  lastPane = pane;
+/** 向きに合わせて、どちらが入力でどちらが結果かを画面に反映する */
+function applyDirection(): void {
+  const fromCron = direction === "cronToJa";
+  panes.dataset.direction = direction;
+
+  cronInput.readOnly = !fromCron;
+  jaInput.readOnly = fromCron;
+  cronInput.placeholder = fromCron ? PLACEHOLDER.cron : "";
+  jaInput.placeholder = fromCron ? "" : PLACEHOLDER.ja;
+
+  cronRole.textContent = fromCron ? "入力" : "結果";
+  jaRole.textContent = fromCron ? "結果" : "入力";
+  cronRole.className = `pane-role pane-role-${fromCron ? "source" : "output"}`;
+  jaRole.className = `pane-role pane-role-${fromCron ? "output" : "source"}`;
+
+  dirFrom.textContent = fromCron ? "cron 式" : "日本語";
+  dirTo.textContent = fromCron ? "日本語" : "cron 式";
+  swapButton.textContent = fromCron ? "⇄ 日本語から変換する" : "⇄ cron 式から変換する";
+}
+
+function render(): void {
   const options = currentOptions();
   cronDiag.replaceChildren();
   jaDiag.replaceChildren();
@@ -287,60 +304,76 @@ function render(pane: Pane): void {
   jaInput.classList.remove("stale");
   updateZoneLabels(resolveZoneSafely(options.tz));
 
-  if (pane === "cron") renderFromCron(options);
+  if (direction === "cronToJa") renderFromCron(options);
   else renderFromJa(options);
+}
+
+/**
+ * 向きを変える。両方の欄は値を保ったままなので、それまでの変換結果が
+ * そのまま新しい入力になる。
+ */
+function setDirection(next: Direction): void {
+  direction = next;
+  applyDirection();
+  render();
 }
 
 let composing = false;
 let pending: number | undefined;
 
-function schedule(pane: Pane): void {
+function schedule(): void {
   if (pending !== undefined) window.clearTimeout(pending);
   pending = window.setTimeout(() => {
     pending = undefined;
-    render(pane);
+    render();
   }, 180);
 }
 
-for (const [input, pane] of [
-  [cronInput, "cron"],
-  [jaInput, "ja"],
-] as const) {
+for (const input of [cronInput, jaInput]) {
   input.addEventListener("compositionstart", () => {
     composing = true;
   });
   input.addEventListener("compositionend", () => {
     composing = false;
-    schedule(pane);
+    schedule();
   });
   // 変換確定前の未確定文字列で parse を走らせるとエラーが点滅するので、確定を待つ
   input.addEventListener("input", () => {
-    if (!composing) schedule(pane);
+    if (!composing) schedule();
   });
 }
+
+swapButton.addEventListener("click", () => {
+  setDirection(direction === "cronToJa" ? "jaToCron" : "cronToJa");
+});
 
 for (const select of [tzSelect, styleSelect, hourSelect]) {
   select.addEventListener("change", () => {
-    render(lastPane);
+    render();
   });
 }
 
-for (const sample of SAMPLES) {
-  const button = document.createElement("button");
-  button.type = "button";
-  button.className = sample.pane === "cron" ? "sample mono" : "sample";
-  button.textContent = sample.text;
-  button.addEventListener("click", () => {
-    const input = sample.pane === "cron" ? cronInput : jaInput;
-    input.value = sample.text;
-    render(sample.pane);
-  });
-  samplesBox.append(button);
+function addSamples(hostId: string, samples: readonly string[], target: Direction): void {
+  const host = element(hostId);
+  for (const text of samples) {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = target === "cronToJa" ? "sample mono" : "sample";
+    button.textContent = text;
+    button.addEventListener("click", () => {
+      (target === "cronToJa" ? cronInput : jaInput).value = text;
+      setDirection(target);
+    });
+    host.append(button);
+  }
 }
+
+addSamples("samples-cron", CRON_SAMPLES, "cronToJa");
+addSamples("samples-ja", JA_SAMPLES, "jaToCron");
 
 for (const node of document.querySelectorAll(".version")) {
   node.textContent = `v${__PKG_VERSION__}`;
 }
 
 cronInput.value = "0 0 * * 1-5";
-render("cron");
+setDirection("cronToJa");

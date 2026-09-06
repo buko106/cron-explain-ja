@@ -120,12 +120,67 @@ main,
   font-size: 0.9rem;
 }
 
+/* ------------------------------------------------------------------ */
+/* 変換の向き                                                          */
+/* ------------------------------------------------------------------ */
+
+.direction {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.75rem 1rem;
+  padding: 1rem 0 0;
+}
+
+.direction-current {
+  font-size: 1rem;
+}
+
+.direction-arrow {
+  margin: 0 0.4rem;
+  color: var(--muted);
+}
+
+.swap {
+  padding: 0.4rem 0.9rem;
+  border: 1px solid var(--accent);
+  border-radius: 999px;
+  background: var(--accent-soft);
+  color: var(--accent);
+  font: inherit;
+  font-size: 0.85rem;
+  cursor: pointer;
+}
+
+/* タッチ端末ではタップ後に :hover が残って押しっぱなしに見えるので、
+   ポインタのある環境にだけ効かせる */
+@media (hover: hover) {
+  .swap:hover {
+    background: var(--accent);
+    color: #fff;
+  }
+}
+
+.swap:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
 .panes {
   display: grid;
-  grid-template-columns: 1fr auto 1fr;
-  gap: 1rem;
+  grid-template-columns: 1fr 1fr;
+  gap: 1.25rem;
   align-items: start;
-  padding: 1.25rem 0;
+  padding: 1rem 0 1.25rem;
+}
+
+/* 変換元をつねに先（横並びなら左、縦積みなら上）に置く */
+.panes[data-direction="jaToCron"] .pane-ja {
+  order: 1;
+}
+
+.panes[data-direction="jaToCron"] .pane-cron {
+  order: 2;
 }
 
 .pane {
@@ -140,6 +195,25 @@ main,
   margin-bottom: 0.4rem;
   font-weight: 600;
   font-size: 0.95rem;
+}
+
+.pane-role {
+  font-weight: 600;
+  font-size: 0.7rem;
+  letter-spacing: 0.06em;
+  padding: 0.15rem 0.45rem;
+  border-radius: 4px;
+}
+
+.pane-role-source {
+  color: #fff;
+  background: var(--accent);
+}
+
+.pane-role-output {
+  color: var(--muted);
+  background: var(--bg);
+  border: 1px solid var(--border);
 }
 
 .pane-zone {
@@ -163,10 +237,9 @@ main,
   resize: vertical;
 }
 
-/* 入力元がエラーのあいだ、反対側に残る前回の結果を答えに見せない */
+/* 変換元がエラーのあいだ、結果の欄に残る前回の値を答えに見せない */
 .pane textarea.stale {
-  color: var(--muted);
-  background: var(--bg);
+  opacity: 0.45;
 }
 
 .pane textarea:focus {
@@ -174,15 +247,29 @@ main,
   outline-offset: -1px;
 }
 
+/* 変換結果の欄。選択してコピーはできるが編集はできない */
+.pane textarea[readonly] {
+  background: var(--bg);
+  cursor: default;
+}
+
+.pane textarea[readonly]:focus {
+  outline-color: var(--border);
+}
+
 #cron {
   font-family: var(--mono);
 }
 
+/* ふたつの欄がつながっていることを示すだけの飾り。押せる要素ではないので、
+   タップを受け取らせない（スマホでハイライトが出ると押せるように見える） */
 .pane-arrow {
   align-self: center;
-  padding-top: 1.6rem;
+  padding-top: 1.7rem;
   color: var(--muted);
-  font-size: 1.4rem;
+  font-size: 1.15rem;
+  pointer-events: none;
+  user-select: none;
 }
 
 /* ------------------------------------------------------------------ */
@@ -237,15 +324,22 @@ main,
 
 .samples {
   display: flex;
-  flex-wrap: wrap;
-  align-items: baseline;
-  gap: 0.4rem;
+  flex-direction: column;
+  gap: 0.5rem;
   padding-bottom: 1.25rem;
   border-bottom: 1px solid var(--border);
   font-size: 0.85rem;
 }
 
+.sample-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.4rem 0.6rem;
+}
+
 .samples-label {
+  flex: 0 0 6rem;
   color: var(--muted);
 }
 
@@ -270,9 +364,11 @@ main,
   font-family: var(--mono);
 }
 
-.sample:hover {
-  border-color: var(--accent);
-  color: var(--accent);
+@media (hover: hover) {
+  .sample:hover {
+    border-color: var(--accent);
+    color: var(--accent);
+  }
 }
 
 /* ------------------------------------------------------------------ */
@@ -405,9 +501,28 @@ main,
     gap: 0.75rem;
   }
 
+  /* 縦積みでは罫線に乗せた区切りにする。単独の矢印だとボタンに見えてしまう */
   .pane-arrow {
-    padding-top: 0;
-    text-align: center;
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    padding: 0.1rem 0;
+    font-size: 1rem;
+  }
+
+  .pane-arrow::before,
+  .pane-arrow::after {
+    content: "";
+    flex: 1;
+    border-top: 1px solid var(--border);
+  }
+
+  /* 回転の中心と字面の中心をそろえるため、正方形の箱に入れてから回す */
+  .pane-arrow-glyph {
+    display: grid;
+    place-items: center;
+    width: 1.5rem;
+    height: 1.5rem;
     transform: rotate(90deg);
   }
 

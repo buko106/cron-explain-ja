@@ -54,9 +54,19 @@
           </label>
         </div>
 
-        <div class="panes">
-          <div class="pane">
+        <div class="direction">
+          <span class="direction-current">
+            <strong id="dir-from">cron 式</strong>
+            <span class="direction-arrow" aria-hidden="true">→</span>
+            <strong id="dir-to">日本語</strong>
+          </span>
+          <button type="button" class="swap" id="swap">⇄ 日本語から変換する</button>
+        </div>
+
+        <div class="panes" id="panes" data-direction="cronToJa">
+          <div class="pane pane-cron">
             <label class="pane-label" for="cron">
+              <span class="pane-role" id="cron-role"></span>
               cron 式
               <span class="pane-zone" id="cron-zone"></span>
             </label>
@@ -71,10 +81,9 @@
             <div class="diagnostics" id="cron-diag"></div>
           </div>
 
-          <div class="pane-arrow" aria-hidden="true">⇄</div>
-
-          <div class="pane">
+          <div class="pane pane-ja">
             <label class="pane-label" for="ja">
+              <span class="pane-role" id="ja-role"></span>
               日本語
               <span class="pane-zone" id="ja-zone"></span>
             </label>
@@ -84,8 +93,14 @@
         </div>
 
         <div class="samples">
-          <span class="samples-label">例：</span>
-          <span class="samples-list" id="samples"></span>
+          <div class="sample-row">
+            <span class="samples-label">cron 式の例</span>
+            <span class="samples-list" id="samples-cron"></span>
+          </div>
+          <div class="sample-row">
+            <span class="samples-label">日本語の例</span>
+            <span class="samples-list" id="samples-ja"></span>
+          </div>
         </div>
 
         <div class="detail" id="detail" hidden>
