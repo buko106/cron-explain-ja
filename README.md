@@ -349,10 +349,6 @@ main にマージすると Release ワークフローがリリース PR（`chore
 マージするとタグ・GitHub Release・npm への publish がまとめて走ります。npm への publish は
 Trusted Publishing（OIDC）で行うので、npm のトークンは保管していません。
 
-リポジトリの外側にある設定（GitHub Secrets、npm の trusted publisher、Actions の設定）と、
-それらを外したときにどう壊れたかの記録は
-[RELEASE.md](https://github.com/buko106/cron-explain-ja/blob/main/RELEASE.md) にあります。
-
 ## 互換性
 
 [Semantic Versioning](https://semver.org/lang/ja/) に従います。1.0.0 以降、次のものを
