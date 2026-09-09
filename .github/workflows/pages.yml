@@ -12,12 +12,10 @@ jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: pnpm/action-setup@v4
-        with: { version: 9 }
-      - uses: actions/setup-node@v4
-        with: { node-version: 22, cache: pnpm }
-      - run: pnpm install --frozen-lockfile
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with: { node-version: 24 }
+      - run: npm ci
       # デモは package.json の version を unpkg から読む。リリース PR をマージすると
       # このワークフローと Release が同時に走るため、publish より先にデプロイすると
       # まだ存在しない URL を指したページが出てしまう。取れるまで待ってから作る。
@@ -35,7 +33,7 @@ jobs:
           done
           echo "::error::$url を取得できません。npm への publish が終わっていない可能性があります"
           exit 1
-      - run: pnpm build:site
+      - run: npm run build:site
       - uses: actions/upload-pages-artifact@v3
         with: { path: site-dist }
 

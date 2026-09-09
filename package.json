@@ -43,8 +43,7 @@
     "lint": "biome check .",
     "lint:fix": "biome check --write .",
     "typecheck": "tsc --noEmit && tsc -p tsconfig.test.json && tsc -p tsconfig.site.json",
-    "prepublishOnly": "pnpm run lint && pnpm run typecheck && pnpm run build && pnpm run test",
-    "release": "changeset publish"
+    "prepublishOnly": "npm run lint && npm run typecheck && npm run build && npm test"
   },
   "keywords": [
     "cron",
@@ -70,7 +69,6 @@
   },
   "devDependencies": {
     "@biomejs/biome": "^2.5.12",
-    "@changesets/cli": "^3.0.2",
     "@types/node": "^26.4.1",
     "@vitest/coverage-v8": "^5.0.0",
     "cron-parser": "^5.10.0",
