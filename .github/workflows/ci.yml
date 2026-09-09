@@ -3,7 +3,7 @@ on:
   push: { branches: [main] }
   pull_request:
 jobs:
-  # 開発ツールチェーン（vitest 5 / rolldown）が Node 22.12+ を要求するため、
+  # 開発ツールチェーン（tsdown / vitest 5）が Node 22.18+ を要求するため、
   # ここでは Node 22 以降のみをテストする。
   test:
     name: test (node ${{ matrix.node }})
