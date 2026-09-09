@@ -1,5 +1,12 @@
 # cron-explain-ja
 
+## [1.2.2](https://github.com/buko106/cron-explain-ja/compare/v1.2.1...v1.2.2) (2026-09-09)
+
+
+### Miscellaneous Chores
+
+* リリース経路を通すために 1.2.2 を切る ([#49](https://github.com/buko106/cron-explain-ja/issues/49)) ([8684af3](https://github.com/buko106/cron-explain-ja/commit/8684af31f5ec9e59f73097b355b6ad3904e4c205))
+
 ## 1.2.1
 
 ### Patch Changes
