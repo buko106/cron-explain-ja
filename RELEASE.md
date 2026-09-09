@@ -1,13 +1,14 @@
 # リリース
 
-変更は [changesets](https://github.com/changesets/changesets) で記録し、main にマージすると
-Release ワークフローが「Version Packages」PR を作ります。その PR をマージすると npm に
-公開されます。npm への publish は Trusted Publishing（OIDC）で行うので、npm のトークンは
-保管していません。
+バージョンは [release-please](https://github.com/googleapis/release-please) が main の
+コミットメッセージ（Conventional Commits）から決めます。main にマージするとリリース PR
+（`chore(main): release X.Y.Z`）ができ、その PR をマージするとタグ・GitHub Release・
+npm への publish がまとめて走ります。npm への publish は Trusted Publishing（OIDC）で
+行うので、npm のトークンは保管していません。
 
 この文書はリポジトリの外側にある設定（GitHub Secrets、npm の trusted publisher、
 リポジトリの Actions 設定）と、それらを外したときにどう壊れたかの記録です。
-npm のパッケージには同梱していません。
+npm のパッケージには同梱していません。日々の使い方は README の「リリース」にあります。
 
 ## 必要な設定
 
@@ -15,10 +16,11 @@ npm のパッケージには同梱していません。
 
 | Secret | 用途 |
 |---|---|
-| `RELEASE_TOKEN` | Version PR に CI を走らせるための classic PAT（`repo` スコープ） |
+| `RELEASE_TOKEN` | リリース PR に CI を走らせるための classic PAT（`repo` スコープ） |
 
 fine-grained トークンは使えません。未設定でも `GITHUB_TOKEN` にフォールバックするので
-リリース自体は動きます（Version PR の承認だけ手作業になります）。
+リリース自体は動きますが、main は必須チェック 5 つで保護されているため、リリース PR は
+チェックが埋まらずマージできなくなります。
 
 **npm** 側は **npmjs.com → cron-explain-ja → Settings → Trusted publisher** で GitHub Actions を
 登録しておく必要があります。ここで指定したワークフロー以外からは publish できません。
@@ -39,51 +41,18 @@ Trusted publisher を登録すれば `NPM_TOKEN` の Secret は不要です。
 | 項目 | 値 |
 | --- | --- |
 | Workflow permissions | Read and write permissions |
-| Actions permissions | サードパーティのアクションを許可（絞るなら `pnpm/action-setup@*, changesets/action@*`） |
+| Actions permissions | Marketplace verified creators を許可（または許可リストに `googleapis/release-please-action@*`） |
 
-**ワークフロー側**の前提は次の 4 つです。
+**ワークフロー側**の前提は次の 3 つです。
 
 - `permissions` に `id-token: write` を入れる
-- npm CLI を **11 系**（11.5.1 以上、12 系は不可）にする
-- `actions/setup-node` に `registry-url` を **指定しない**
-- `changesets/action` は **v2 以上**を使う
+- npm CLI を 11.5.1 以上にする（Node 24 の同梱 npm が満たすので、入れ替えの手順は要らない）
+- リリース PR を作るトークンに `RELEASE_TOKEN` を渡す
 
 ## トラブルシューティング履歴
 
 Release ワークフローを組むまでに踏んだ失敗の記録です。上の設定を変える前に読んでください。
 どれも症状が原因から遠く、診断に時間がかかったものばかりです。
-
-### Version PR の CI が承認待ちで止まる
-
-**症状** — changesets のアクションが作った「Version Packages」PR で、CI が
-`action_required` のまま動かない。必須チェックが埋まらないのでブランチ保護によって
-マージできない。
-
-**原因** — ビルトインの `GITHUB_TOKEN` で push すると、承認ゲートの対象になる。
-承認前の run は check run を作らないため、チェックが「待ち」ですらなく空のままになる。
-
-**対処** — write 権限を持つユーザーの PAT（`RELEASE_TOKEN`）で push する。アクターが
-そのユーザーになり、承認なしで CI が走る。
-
-fine-grained トークンは changesets のアクションで push に失敗する報告があるため、
-classic PAT（`repo` スコープ）を使う。未設定でも `GITHUB_TOKEN` にフォールバックするので、
-リリース自体は動く（Version PR の承認だけ手作業になる）。
-
-`RELEASE_TOKEN` は `actions/checkout` の `token` にも渡している。changesets の
-アクションは v2 から既定で GitHub API 経由で push するため通常は不要だが、
-`push-with-git-cli` を有効にすると checkout が `.git/config` に埋めた
-`http.extraheader` が使われ、push だけ bot 名義に戻るため。
-
-### `changesets/action@v1` でタグと Release が黙って飛ばされる
-
-**症状** — publish は成功しているのに、git のタグが push されず GitHub Release も
-作られない。ログにエラーは出ない。
-
-**原因** — v1 は publish の出力から `New tag:` の行を探して公開を検知するが、
-`@changesets/cli` 3.x はその形式で出力しない。
-
-**対処** — アクションは **v2 以上**を使う。v2 は NDJSON のファイル経由で結果を
-受け取るのでこの取りこぼしが起きない。
 
 ### npm への publish が E403（Trusted Publishing）
 
@@ -121,40 +90,46 @@ OIDC を試さずに黙って通常の認証へ落ちる。
 
 **対処** — `permissions` に `id-token: write` を入れる。
 
-### npm CLI のバージョン（10 系では動かず、12 系では別の失敗）
-
-**症状** — Node 22 の同梱 npm（10 系）では Trusted Publishing がそもそも動かない。
-一方 12 系に上げると `EUNKNOWNCONFIG` で publish が落ちる。
-
-**原因** — OIDC は npm 11.5.1 以上が必要。`changeset publish` が呼ぶのは `pnpm publish`
-だが、pnpm は publish 本体を node と同じディレクトリの npm（無ければ PATH 上の npm）へ
-委譲するため、pnpm 自体が OIDC 未対応でも入れ替えた npm がそのまま使われる。
-pnpm 9 は自分専用のフラグ（`--no-git-checks`）もそのまま npm へ渡すが、npm 12 は
-未知のフラグを `EUNKNOWNCONFIG` で撥ねる（11 は警告のみで通す）。
-
-**対処** — `npm install --global "npm@^11.5.1"` で 11 系に入れ替える。12 に上げるなら、
-委譲前にフラグを落とす pnpm 10 以上へ先に揃えること。
-
 ### 認証失敗が 404 になって原因を見失う
 
 **症状** — publish が 404 で落ちる。パッケージ名の間違いにしか見えない。
 
-**原因** — `actions/setup-node` に `registry-url` を指定すると、
-`//registry.npmjs.org/:_authToken=${NODE_AUTH_TOKEN}` を書いた `.npmrc` が
-`NPM_CONFIG_USERCONFIG` になる。OIDC が効かなかったときにプレースホルダのトークンで
-publish され、認証失敗が 404 で返ってくる。
+**原因** — `actions/setup-node` の `registry-url` は
+`//registry.npmjs.org/:_authToken=${NODE_AUTH_TOKEN}` を書いた `.npmrc` を
+`NPM_CONFIG_USERCONFIG` に置く。`NODE_AUTH_TOKEN` は渡していないので、OIDC が効かなかった
+ときだけプレースホルダのまま publish され、認証失敗が 404 で返ってくる。
 
-**対処** — `registry-url` を **指定しない**。既定のレジストリは registry.npmjs.org なので
-publish 先は変わらず、認証が無いときは `ENEEDAUTH` で止まるので原因が分かる。
+**対処** — 404 が出たらパッケージ名ではなく OIDC を疑い、ログに
+`oidc` の行があるかを先に見る。`registry-url` は npm の Trusted Publishing の手順が
+指定するものなので外さない（外しても既定のレジストリは同じだが、指定なしの構成は
+npm 側の想定から外れる）。
 
-### Version PR が作られない
+### Version PR / リリース PR の CI が走らない
 
-**症状** — main にマージしても changesets のアクションが Version PR を作らない。
+**症状** — リリース用に自動で作られた PR で CI が動かない。必須チェックが埋まらないので
+ブランチ保護によってマージできない。
 
-**原因** — **Settings → Actions → General → Workflow permissions** が
-「Read repository contents permission」になっている。
+**原因** — ビルトインの `GITHUB_TOKEN` で作った PR は、無限ループ防止のためワークフローを
+起動しない（changesets のときは `action_required` で止まった）。承認前の run は check run を
+作らないため、チェックが「待ち」ですらなく空のままになる。
 
-**対処** — 「Read and write permissions」にする。
+**対処** — write 権限を持つユーザーの PAT（`RELEASE_TOKEN`）をアクションの `token` に渡す。
+アクターがそのユーザーになり、通常の PR と同じように CI が走る。fine-grained トークンは
+push に失敗する報告があるため、classic PAT（`repo` スコープ）を使う。
+
+### リリース PR が作られない
+
+**症状** — main にマージしてもリリース PR ができない。
+
+**原因** — 次のどちらか。
+
+- **Settings → Actions → General → Workflow permissions** が
+  「Read repository contents permission」になっている。
+- 前回のリリース以降のコミットに `feat:` / `fix:` が 1 つも無い。`chore:` や `ci:` だけでは
+  バージョンが上がらないので、release-please は PR を作らない（異常ではない）。
+
+**対処** — 前者は「Read and write permissions」にする。後者は仕様どおりなので、
+リリースしたい変更に `feat:` / `fix:` を付ける。
 
 ### ジョブが 1 つも作られず `startup_failure`
 
@@ -162,21 +137,35 @@ publish 先は変わらず、認証が無いときは `ENEEDAUTH` で止まる�
 **Re-run ボタンも出ない**。
 
 **原因** — **Settings → Actions → General → Actions permissions** でサードパーティの
-アクションが許可されていない。ワークフローは `pnpm/action-setup` と `changesets/action`
-を使うため、オーナー製と GitHub 製だけに絞ると起動できない。
+アクションが許可されていない。Release ワークフローは `googleapis/release-please-action` を
+使うため、オーナー製と GitHub 製だけに絞ると起動できない。
 
-**対処** — サードパーティのアクションを許可する。「Allow specified actions」で絞る場合は、
-**カンマ区切りで、バージョンを固定せずに**入力する。
+**対処** — 次のどちらかで許可する。`googleapis` は Marketplace の verified creator なので、
+チェックボックス 1 つで済む前者が簡単。
 
-```
-pnpm/action-setup@*, changesets/action@*
-```
+- **Allow actions created by Marketplace verified creators** を有効にする
+- **Allow specified actions** の許可リストに `googleapis/release-please-action@*` を足す
 
-改行や空白で区切ると全体が 1 個のパターンとして扱われ、何にも一致しなくなる。
-エラーには登録済みのパターンが表示されるため、一見すると一致しているように見えて
-原因が分かりにくい。`changesets/action@v1` のようにバージョンを固定すると、アクションを
-v2 に上げた時点で弾かれる。`actions/checkout` と `actions/setup-node` は GitHub 製なので
-記載は不要。
+許可リストで絞る場合は、**カンマ区切りで、バージョンを固定せずに**入力する。改行や空白で
+区切ると全体が 1 個のパターンとして扱われ、何にも一致しなくなる。エラーには登録済みの
+パターンが表示されるため、一見すると一致しているように見えて原因が分かりにくい。
+バージョンを固定すると、アクションのメジャーを上げた時点で弾かれる。
+`actions/checkout` と `actions/setup-node` は GitHub 製なので、どちらの方式でも記載は不要。
 
 設定を戻したあとは、ジョブが無い run には Re-run ボタンが出ないため、main に何か push して
 新しい run を起こす必要がある。
+
+## 旧構成（pnpm + changesets）で踏んだ失敗
+
+1.2.1 までは pnpm と changesets でリリースしていました。戻す判断をするときのために、
+その構成でしか起きなかった失敗を残しておきます。
+
+- **`changesets/action@v1` でタグと Release が黙って飛ばされる。** v1 は publish の出力から
+  `New tag:` の行を探して公開を検知するが、`@changesets/cli` 3.x はその形式で出力しない。
+  v2 以上は NDJSON のファイル経由で結果を受け取るので取りこぼさない。
+- **npm CLI のバージョンを自分で入れ替える必要があった。** OIDC は npm 11.5.1 以上が必要で、
+  Node 22 の同梱 npm は 10 系。`changeset publish` が呼ぶのは `pnpm publish` だが、pnpm は
+  publish 本体を node と同じディレクトリの npm へ委譲するため、`npm install --global
+  "npm@^11.5.1"` で入れ替えれば OIDC が効いた。ただし 12 系にはできない。pnpm 9 は自分専用の
+  フラグ（`--no-git-checks`）もそのまま npm へ渡すが、npm 12 は未知のフラグを
+  `EUNKNOWNCONFIG` で撥ねる（11 は警告のみで通す）。

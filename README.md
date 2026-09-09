@@ -319,13 +319,13 @@ crontab に貼られたあと何年も動くので、オフセットが変わら
 
 ## 開発
 
-開発用ツールチェーン（tsdown / vitest 5 / changesets 3）は **Node 22.18 以上**を必要とします。
+開発用ツールチェーン（tsdown / vitest 5）は **Node 22.18 以上**を必要とします。
 公開されるパッケージ自体は `engines` のとおり Node 18.3 以上で動作し、CI の
 `runtime` ジョブがビルド成果物を Node 18 / 20 で実行して検証しています。
 
 ```bash
-pnpm install
-pnpm lint && pnpm typecheck && pnpm test && pnpm build
+npm ci
+npm run lint && npm run typecheck && npm test && npm run build
 ```
 
 詳細な設計は [DESIGN.md](https://github.com/buko106/cron-explain-ja/blob/main/DESIGN.md) を
@@ -333,15 +333,21 @@ pnpm lint && pnpm typecheck && pnpm test && pnpm build
 
 ## リリース
 
-変更は [changesets](https://github.com/changesets/changesets) で記録します。
+バージョンは [release-please](https://github.com/googleapis/release-please) が
+[Conventional Commits](https://www.conventionalcommits.org/ja/v1.0.0/) から決めます。
+main に載るコミットメッセージ（PR は squash merge なので PR のタイトル）に種別を付けます。
 
-```bash
-pnpm changeset        # 変更の種類（major/minor/patch）と説明を書く
-```
+| 種別 | 上がるバージョン |
+|---|---|
+| `fix:` / `perf:` | patch |
+| `feat:` | minor |
+| `feat!:`、または本文に `BREAKING CHANGE:` | major |
+| `docs:` `build:` `ci:` `test:` `refactor:` `chore:` | 上がらない（CHANGELOG にも載らない） |
 
-main にマージすると Release ワークフローが「Version Packages」PR を作り、その PR を
-マージすると npm に公開されます。npm への publish は Trusted Publishing（OIDC）で行うので、
-npm のトークンは保管していません。
+main にマージすると Release ワークフローがリリース PR（`chore(main): release X.Y.Z`）を
+作ります。この PR は package.json の version と CHANGELOG.md を書き換えるだけで、
+マージするとタグ・GitHub Release・npm への publish がまとめて走ります。npm への publish は
+Trusted Publishing（OIDC）で行うので、npm のトークンは保管していません。
 
 リポジトリの外側にある設定（GitHub Secrets、npm の trusted publisher、Actions の設定）と、
 それらを外したときにどう壊れたかの記録は
