@@ -23,6 +23,11 @@ jobs:
           # 同じように CI が走る。fine-grained トークンは push に失敗する報告が
           # あるため classic PAT（repo スコープ）を使う。未設定でもリリース自体は
           # 止まらないよう GITHUB_TOKEN にフォールバックする。
+          #
+          # 現在 RELEASE_TOKEN は未設定で、このフォールバックで動いている。その場合
+          # リリース PR は github-actions[bot] 名義になり CI が 1 つも走らないので、
+          # PR を一度 close して reopen し、pull_request イベントを起こして必須チェックを
+          # 埋める必要がある。
           token: ${{ secrets.RELEASE_TOKEN || secrets.GITHUB_TOKEN }}
 
       # ここから下はリリース PR がマージされたときだけ走る。
