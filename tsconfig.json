@@ -7,6 +7,9 @@
     "noUncheckedIndexedAccess": true,
     "exactOptionalPropertyTypes": true,
     "declaration": true,
+    // TypeScript 6 以降、@types/* は自動では読み込まれない（types の既定が []）。
+    // src には CLI（node:util や process を使う）が入るので明示する。
+    "types": ["node"],
     "skipLibCheck": true,
     "outDir": "dist",
     "rootDir": "src"
